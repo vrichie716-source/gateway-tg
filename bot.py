@@ -10,6 +10,7 @@ welcome messages, user tracking, inactivity kicker, service cleanup.
 import logging
 import os
 import random
+import re
 import time
 from html import escape
 from datetime import datetime, timedelta, timezone
@@ -265,7 +266,42 @@ async def _start_add_store_flow(update: Update) -> None:
     await update.message.reply_text("Give me the store name.")
 
 
-async def _finalize_add_store(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+def _parse_target_link(link: str) -> tuple[int | str, int | None, int | None] | None:
+    raw = (link or "").strip()
+
+    # Private supergroup/channel links: https://t.me/c/<internal_chat_id>/<message_id>
+    # Topic links: https://t.me/c/<internal_chat_id>/<topic_id>/<message_id>
+    m_private = re.match(
+        r"^https?://t\.me/c/(\d+)/(\d+)(?:/(\d+))?/?$",
+        raw,
+        flags=re.IGNORECASE,
+    )
+    if m_private:
+        internal_chat = int(m_private.group(1))
+        second = int(m_private.group(2))
+        third = m_private.group(3)
+        chat_id = int(f"-100{internal_chat}")
+        if third:
+            topic_id = second
+            message_id = int(third)
+            return chat_id, message_id, topic_id
+        return chat_id, second, None
+
+    # Public links: https://t.me/<username>/<message_id>
+    m_public = re.match(
+        r"^https?://t\.me/([A-Za-z0-9_]{5,})/(\d+)/?$",
+        raw,
+        flags=re.IGNORECASE,
+    )
+    if m_public:
+        username = m_public.group(1)
+        message_id = int(m_public.group(2))
+        return f"@{username}", message_id, None
+
+    return None
+
+
+async def _finalize_add_store(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user_id = update.effective_user.id
     flow = pending.get(user_id, {})
     data = flow.get("data", {})
@@ -296,25 +332,31 @@ async def _finalize_add_store(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     image_type = data.get("image_type")
     image_value = data.get("image")
+    target_chat_id = data.get("target_chat_id", update.effective_chat.id)
+    target_reply_to = data.get("target_reply_to")
+    target_thread_id = data.get("target_thread_id")
 
     try:
         await context.bot.send_photo(
-            chat_id=update.effective_chat.id,
+            chat_id=target_chat_id,
             photo=image_value,
             caption=caption,
             parse_mode="HTML",
             reply_markup=keyboard,
+            reply_to_message_id=target_reply_to,
+            message_thread_id=target_thread_id,
         )
-    except (BadRequest, Forbidden):
-        # Fallback if Telegram cannot send the image payload.
+    except (BadRequest, Forbidden) as exc:
         await update.message.reply_text(
-            "I couldn't send that image. Please start again with <admin-addstore> and provide a valid image.",
+            f"I couldn't send it there: {exc}\nSend another destination link.",
         )
         if image_type == "url":
             await update.message.reply_text(image_value)
-        return
-    finally:
-        pending.pop(user_id, None)
+        return False
+
+    pending.pop(user_id, None)
+    await update.message.reply_text("Sent ✅")
+    return True
 
 
 async def _handle_add_store_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -381,6 +423,23 @@ async def _handle_add_store_text(update: Update, context: ContextTypes.DEFAULT_T
 
     if step == "notes":
         data["notes"] = text
+        flow["step"] = "destination"
+        await update.message.reply_text("Where should I send this message?")
+        return True
+
+    if step == "destination":
+        parsed = _parse_target_link(text)
+        if not parsed:
+            await update.message.reply_text(
+                "Invalid link. Send a Telegram post link like https://t.me/c/3857658928/148",
+            )
+            return True
+
+        target_chat_id, reply_to_message_id, message_thread_id = parsed
+        data["target_chat_id"] = target_chat_id
+        data["target_reply_to"] = reply_to_message_id
+        data["target_thread_id"] = message_thread_id
+
         await _finalize_add_store(update, context)
         return True
 
