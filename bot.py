@@ -11,6 +11,7 @@ import logging
 import os
 import random
 import time
+from html import escape
 from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
@@ -144,6 +145,26 @@ logger = logging.getLogger(__name__)
 # ─── State ───────────────────────────────────────────────────────────────────
 pending: dict[int, dict] = {}
 
+STORE_COUNTRIES: dict[str, str] = {
+    "US": "🇺🇸",
+    "CA": "🇨🇦",
+    "UK": "🇬🇧",
+    "EU": "🇪🇺",
+    "AUS": "🇦🇺",
+    "MX": "🇲🇽",
+}
+
+STORE_TIMEFRAMES: dict[str, str] = {
+    "TF_1_4_DAYS": "1-4 Days",
+    "TF_7_DAYS": "7 Days",
+    "TF_1_2_WEEKS": "1-2 Weeks",
+    "TF_2_3_WEEKS": "2-3 Weeks",
+    "TF_3_4_WEEKS": "3-4 Weeks",
+    "TF_4_WEEKS": "4 Weeks",
+}
+
+STORE_WATERMARK = "𝐎𝐋𝐈𝐌𝐏𝐎 Watermarked."
+
 # Track users who completed the math captcha: {user_id: timestamp}
 verified_users: dict[int, float] = {}
 
@@ -171,6 +192,272 @@ def generate_math_problem() -> tuple[str, int]:
         return f"{a} + {b}", a + b
     a, b = max(a, b), min(a, b)
     return f"{a} - {b}", a - b
+
+
+def _store_country_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("US", callback_data="store_country_US"),
+            InlineKeyboardButton("CA", callback_data="store_country_CA"),
+            InlineKeyboardButton("UK", callback_data="store_country_UK"),
+        ],
+        [
+            InlineKeyboardButton("EU", callback_data="store_country_EU"),
+            InlineKeyboardButton("AUS", callback_data="store_country_AUS"),
+            InlineKeyboardButton("MX", callback_data="store_country_MX"),
+        ],
+    ])
+
+
+def _store_timeframe_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("1-4 Days", callback_data="store_timeframe_TF_1_4_DAYS")],
+        [InlineKeyboardButton("7 Days", callback_data="store_timeframe_TF_7_DAYS")],
+        [InlineKeyboardButton("1-2 Weeks", callback_data="store_timeframe_TF_1_2_WEEKS")],
+        [InlineKeyboardButton("2-3 Weeks", callback_data="store_timeframe_TF_2_3_WEEKS")],
+        [InlineKeyboardButton("3-4 Weeks", callback_data="store_timeframe_TF_3_4_WEEKS")],
+        [InlineKeyboardButton("4 Weeks", callback_data="store_timeframe_TF_4_WEEKS")],
+    ])
+
+
+def _normalize_store_url(url: str) -> str:
+    url = url.strip()
+    if not url:
+        return url
+    if url.startswith(("http://", "https://")):
+        return url
+    return f"https://{url}"
+
+
+def _is_add_store_flow(user_id: int) -> bool:
+    return (
+        user_id in pending
+        and pending[user_id].get("mode") == "add_store"
+    )
+
+
+def _is_addstore_trigger_text(text: str) -> bool:
+    import re
+
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+
+    for ch in ("<", ">", "[", "]", "(", ")", "{", "}", "`", '"', "'"):
+        normalized = normalized.replace(ch, "")
+    for dash in ("–", "—", "‑", "−", "_"):
+        normalized = normalized.replace(dash, "-")
+
+    normalized = re.sub(r"\s+", "", normalized)
+    if normalized == "admin-addstore" or normalized == "adminaddstore":
+        return True
+
+    return "admin" in normalized and "addstore" in normalized
+
+
+async def _start_add_store_flow(update: Update) -> None:
+    user_id = update.effective_user.id
+    pending[user_id] = {
+        "mode": "add_store",
+        "step": "store_name",
+        "data": {},
+    }
+    await update.message.reply_text("Give me the store name.")
+
+
+async def _finalize_add_store(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    flow = pending.get(user_id, {})
+    data = flow.get("data", {})
+
+    country_code = data.get("country", "US")
+    country_flag = STORE_COUNTRIES.get(country_code, "🇺🇸")
+
+    store_name = escape(data.get("store_name", "N/A"))
+    limit_text = escape(data.get("limit", "N/A"))
+    method_text = escape(data.get("method", "N/A"))
+    notes_text = escape(data.get("notes", "N/A"))
+    timeframe_text = escape(data.get("timeframe", "N/A"))
+    store_url = data.get("store_url", "")
+
+    caption = (
+        f"{country_flag} {store_name} {country_flag}\n"
+        f"<code>{STORE_WATERMARK}</code>\n\n"
+        f"<b>Limit:</b> {limit_text}\n"
+        f"<b>Timeframe:</b> {timeframe_text}\n"
+        f"<b>Method:</b> {method_text}\n"
+        f"<b>Notes:</b> {notes_text}\n\n"
+        f"<code>{STORE_WATERMARK}</code>"
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Visit Store", url=store_url)]
+    ])
+
+    image_type = data.get("image_type")
+    image_value = data.get("image")
+
+    try:
+        await context.bot.send_photo(
+            chat_id=update.effective_chat.id,
+            photo=image_value,
+            caption=caption,
+            parse_mode="HTML",
+            reply_markup=keyboard,
+        )
+    except (BadRequest, Forbidden):
+        # Fallback if Telegram cannot send the image payload.
+        await update.message.reply_text(
+            "I couldn't send that image. Please start again with <admin-addstore> and provide a valid image.",
+        )
+        if image_type == "url":
+            await update.message.reply_text(image_value)
+        return
+    finally:
+        pending.pop(user_id, None)
+
+
+async def _handle_add_store_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    user_id = update.effective_user.id
+    flow = pending.get(user_id)
+    if not flow or flow.get("mode") != "add_store":
+        return False
+
+    text = (update.message.text or "").strip()
+    step = flow.get("step")
+    data = flow.setdefault("data", {})
+
+    if step == "store_name":
+        data["store_name"] = text
+        flow["step"] = "image"
+        await update.message.reply_text("Give me the image.")
+        return True
+
+    if step == "image":
+        normalized = _normalize_store_url(text)
+        if not normalized.startswith(("http://", "https://")):
+            await update.message.reply_text("Give me the image.")
+            return True
+        data["image_type"] = "url"
+        data["image"] = normalized
+        flow["step"] = "store_url"
+        await update.message.reply_text("Give me the store URL")
+        return True
+
+    if step == "store_url":
+        data["store_url"] = _normalize_store_url(text)
+        flow["step"] = "country"
+        await update.message.reply_text(
+            "Select the country",
+            reply_markup=_store_country_keyboard(),
+        )
+        return True
+
+    if step == "country":
+        await update.message.reply_text("Select the country", reply_markup=_store_country_keyboard())
+        return True
+
+    if step == "limit":
+        data["limit"] = text
+        flow["step"] = "timeframe"
+        await update.message.reply_text(
+            "Select timeframe",
+            reply_markup=_store_timeframe_keyboard(),
+        )
+        return True
+
+    if step == "timeframe":
+        await update.message.reply_text(
+            "Select timeframe",
+            reply_markup=_store_timeframe_keyboard(),
+        )
+        return True
+
+    if step == "method":
+        data["method"] = text
+        flow["step"] = "notes"
+        await update.message.reply_text("Add your notes")
+        return True
+
+    if step == "notes":
+        data["notes"] = text
+        await _finalize_add_store(update, context)
+        return True
+
+    return False
+
+
+async def _handle_add_store_media(update: Update) -> bool:
+    user_id = update.effective_user.id
+    flow = pending.get(user_id)
+    if not flow or flow.get("mode") != "add_store":
+        return False
+    if flow.get("step") != "image":
+        return False
+
+    data = flow.setdefault("data", {})
+    message = update.message
+
+    if message.photo:
+        data["image_type"] = "photo"
+        data["image"] = message.photo[-1].file_id
+    elif message.document and (message.document.mime_type or "").startswith("image/"):
+        data["image_type"] = "document"
+        data["image"] = message.document.file_id
+    else:
+        await update.message.reply_text("Give me the image.")
+        return True
+
+    flow["step"] = "store_url"
+    await update.message.reply_text("Give me the store URL")
+    return True
+
+
+async def store_country_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if query.message.chat.type != "private":
+        return
+
+    user_id = query.from_user.id
+    flow = pending.get(user_id)
+    if not flow or flow.get("mode") != "add_store" or flow.get("step") != "country":
+        return
+
+    country_code = query.data.replace("store_country_", "", 1)
+    if country_code not in STORE_COUNTRIES:
+        return
+
+    data = flow.setdefault("data", {})
+    data["country"] = country_code
+    flow["step"] = "limit"
+
+    await query.message.reply_text("Give me the $ or item limit.")
+
+
+async def store_timeframe_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if query.message.chat.type != "private":
+        return
+
+    user_id = query.from_user.id
+    flow = pending.get(user_id)
+    if not flow or flow.get("mode") != "add_store" or flow.get("step") != "timeframe":
+        return
+
+    timeframe_key = query.data.replace("store_timeframe_", "", 1)
+    timeframe_label = STORE_TIMEFRAMES.get(timeframe_key)
+    if not timeframe_label:
+        return
+
+    data = flow.setdefault("data", {})
+    data["timeframe"] = timeframe_label
+    flow["step"] = "method"
+
+    await query.message.reply_text("Give me the method.")
 
 
 # ─── Revocation job ─────────────────────────────────────────────────────────
@@ -268,6 +555,15 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     user_id = update.effective_user.id
     text = update.message.text.strip()
 
+    if update.effective_chat.type == "private" and _is_addstore_trigger_text(text):
+        await _start_add_store_flow(update)
+        return
+
+    if _is_add_store_flow(user_id):
+        handled = await _handle_add_store_text(update, context)
+        if handled:
+            return
+
     if user_id not in pending or "answer" not in pending[user_id]:
         lang = pending.get(user_id, {}).get("lang", "en")
         msg = await update.message.reply_text(t(lang, "no_pending"))
@@ -356,6 +652,22 @@ async def retry_captcha_callback(update: Update, context: ContextTypes.DEFAULT_T
     await query.edit_message_text(
         t(lang, "math_prompt", q=question), parse_mode="Markdown",
     )
+
+
+async def handle_private_media(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_chat.type != "private" or not update.message:
+        return
+
+    handled = await _handle_add_store_media(update)
+    if handled:
+        return
+
+
+async def admin_addstore_trigger(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_chat.type != "private" or not update.message or not update.message.text:
+        return
+    if _is_addstore_trigger_text(update.message.text):
+        await _start_add_store_flow(update)
 
 
 # ─── Dot-command text trigger handler ────────────────────────────────────────
@@ -775,12 +1087,24 @@ def main() -> None:
     # ── Gateway (DM) ─────────────────────────────────────────────────────
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(
+        MessageHandler(
+            filters.Regex(r"(?i)add\s*[-_–—‑]?\s*store") & filters.ChatType.PRIVATE,
+            admin_addstore_trigger,
+        )
+    )
+    application.add_handler(
         CallbackQueryHandler(language_callback, pattern=r"^lang_(en|es)$")
     )
     application.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
             handle_answer,
+        )
+    )
+    application.add_handler(
+        MessageHandler(
+            (filters.PHOTO | filters.Document.IMAGE) & filters.ChatType.PRIVATE,
+            handle_private_media,
         )
     )
 
@@ -865,6 +1189,15 @@ def main() -> None:
     )
     application.add_handler(
         CallbackQueryHandler(retry_captcha_callback, pattern=r"^retry_captcha$")
+    )
+    application.add_handler(
+        CallbackQueryHandler(store_country_callback, pattern=r"^store_country_(US|CA|UK|EU|AUS|MX)$")
+    )
+    application.add_handler(
+        CallbackQueryHandler(
+            store_timeframe_callback,
+            pattern=r"^store_timeframe_(TF_1_4_DAYS|TF_7_DAYS|TF_1_2_WEEKS|TF_2_3_WEEKS|TF_3_4_WEEKS|TF_4_WEEKS)$",
+        )
     )
     application.add_handler(
         CallbackQueryHandler(unmute_callback, pattern=r"^unmute_\d+$")
