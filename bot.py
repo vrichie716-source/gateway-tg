@@ -120,16 +120,18 @@ load_dotenv()
 
 BOT_TOKEN: str = os.environ["BOT_TOKEN"]
 
-GROUP_IDS: list[int] = [
-    int(gid.strip()) for gid in os.environ["GROUP_IDS"].split(",")
-]
+def _parse_csv_env(key: str) -> list[str]:
+    raw = os.environ.get(key, "")
+    return [part.strip() for part in raw.split(",") if part.strip()]
 
-_raw_names = os.environ.get("GROUP_NAMES", "")
-GROUP_NAMES: list[str] = (
-    [n.strip() for n in _raw_names.split(",")]
-    if _raw_names
-    else [str(gid) for gid in GROUP_IDS]
-)
+
+GROUP_IDS: list[int] = [int(gid) for gid in _parse_csv_env("GROUP_IDS")]
+
+_group_names = _parse_csv_env("GROUP_NAMES")
+GROUP_NAMES: list[str] = _group_names if _group_names else [str(gid) for gid in GROUP_IDS]
+
+if len(GROUP_NAMES) < len(GROUP_IDS):
+    GROUP_NAMES.extend(str(gid) for gid in GROUP_IDS[len(GROUP_NAMES):])
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 
@@ -154,6 +156,13 @@ PENDING_APPROVAL_TIMEOUT = 36 * 3600  # 36 hours in seconds
 
 
 # ─── Utilities ───────────────────────────────────────────────────────────────
+
+def _is_manual_approval_chat(chat_id: int) -> bool:
+    """True when this chat should always require manual admin approval."""
+    for gid, gname in zip(GROUP_IDS, GROUP_NAMES):
+        if gid == chat_id:
+            return gname.strip().lower() == "main"
+    return False
 
 def generate_math_problem() -> tuple[str, int]:
     a = random.randint(1, 50)
@@ -599,6 +608,15 @@ async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE
     user = join_request.from_user
     chat = join_request.chat
 
+    # Main group is always manual approval only
+    if _is_manual_approval_chat(chat.id):
+        _pending_requests[(chat.id, user.id)] = time.time()
+        logger.info(
+            "Join request in Main kept for manual admin approval: %s (%s) in %s",
+            user.id, user.full_name, chat.id,
+        )
+        return
+
     # Block fedbanned users immediately
     if is_fedbanned(user.id):
         try:
@@ -637,6 +655,8 @@ async def auto_approve_stale_requests(context: ContextTypes.DEFAULT_TYPE) -> Non
     to_remove: list[tuple[int, int]] = []
 
     for (chat_id, user_id), requested_at in list(_pending_requests.items()):
+        if _is_manual_approval_chat(chat_id):
+            continue
         if (now - requested_at) >= PENDING_APPROVAL_TIMEOUT:
             try:
                 await context.bot.approve_chat_join_request(chat_id, user_id)
@@ -673,6 +693,7 @@ async def on_member_joined(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     # Only act when user goes from non-member to member
     if old_status in ("left", "kicked") and new_status in ("member", "restricted"):
+        _pending_requests.pop((chat.id, user.id), None)
         if user.is_bot:
             return
         lang = get_chat_lang(chat.id)
