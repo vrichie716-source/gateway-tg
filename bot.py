@@ -677,6 +677,41 @@ async def auto_approve_stale_requests(context: ContextTypes.DEFAULT_TYPE) -> Non
         _pending_requests.pop(key, None)
 
 
+async def welcome_manually_approved_requests(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Fallback: for manual-approval chats, detect approved users and send welcome+captcha.
+    This covers cases where Telegram does not deliver a join event update.
+    """
+    to_remove: list[tuple[int, int]] = []
+
+    for (chat_id, user_id), _requested_at in list(_pending_requests.items()):
+        if not _is_manual_approval_chat(chat_id):
+            continue
+
+        try:
+            member = await context.bot.get_chat_member(chat_id, user_id)
+        except (BadRequest, Forbidden):
+            continue
+
+        if member.status in ("member", "restricted", "administrator", "creator"):
+            try:
+                chat = await context.bot.get_chat(chat_id)
+                lang = get_chat_lang(chat_id)
+                await restrict_and_welcome(chat, member.user, context, lang)
+                logger.info(
+                    "Detected manual approval; welcome sent: user %s in chat %s",
+                    user_id, chat_id,
+                )
+            except (BadRequest, Forbidden) as exc:
+                logger.warning(
+                    "Could not send welcome after manual approval for %s in %s: %s",
+                    user_id, chat_id, exc,
+                )
+            to_remove.append((chat_id, user_id))
+
+    for key in to_remove:
+        _pending_requests.pop(key, None)
+
+
 async def on_member_joined(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle ChatMemberUpdated — welcome + captcha when user becomes a member."""
     member_update = update.chat_member
@@ -908,6 +943,13 @@ def main() -> None:
         interval=3600,
         first=3600,
         name="stale_request_approver",
+    )
+    # Fallback checker for manually-approved requests in Main (every minute)
+    application.job_queue.run_repeating(
+        callback=welcome_manually_approved_requests,
+        interval=60,
+        first=20,
+        name="manual_approval_welcome_checker",
     )
 
     logger.info("Bot started — waiting for messages...")
