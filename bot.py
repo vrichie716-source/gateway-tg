@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.error import BadRequest, Forbidden
+from telegram.error import BadRequest, Conflict, Forbidden
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -1185,6 +1185,19 @@ SERVICE_FILTER = (
 def main() -> None:
     application = Application.builder().token(BOT_TOKEN).build()
 
+    async def _on_application_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if isinstance(context.error, Conflict):
+            logger.critical(
+                "Telegram Conflict detected: another bot instance is using this BOT_TOKEN (duplicate polling/getUpdates). "
+                "Stopping this process. Ensure only one active instance runs in polling mode."
+            )
+            await context.application.stop()
+            return
+
+        logger.exception("Unhandled application error", exc_info=context.error)
+
+    application.add_error_handler(_on_application_error)
+
     # ── Gateway (DM) ─────────────────────────────────────────────────────
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(
@@ -1396,29 +1409,43 @@ def main() -> None:
         # Webhook mode for Render free tier
         webhook_url = f"{RENDER_URL}/webhook"
         logger.info(f"Running in WEBHOOK mode on port {PORT} → {webhook_url}")
-        application.run_webhook(
-            listen="0.0.0.0",
-            port=PORT,
-            url_path="webhook",
-            webhook_url=webhook_url,
-            allowed_updates=[
-                "message", "edited_message", "channel_post", "edited_channel_post",
-                "inline_query", "chosen_inline_result", "callback_query",
-                "shipping_query", "pre_checkout_query", "poll", "poll_answer",
-                "my_chat_member", "chat_member", "chat_join_request",
-            ],
-        )
+        try:
+            application.run_webhook(
+                listen="0.0.0.0",
+                port=PORT,
+                url_path="webhook",
+                webhook_url=webhook_url,
+                allowed_updates=[
+                    "message", "edited_message", "channel_post", "edited_channel_post",
+                    "inline_query", "chosen_inline_result", "callback_query",
+                    "shipping_query", "pre_checkout_query", "poll", "poll_answer",
+                    "my_chat_member", "chat_member", "chat_join_request",
+                ],
+            )
+        except Conflict:
+            logger.critical(
+                "Telegram Conflict detected at startup. Another instance is already using this BOT_TOKEN. "
+                "Stop duplicate instances (Render/local/other hosts) and restart only one bot process."
+            )
+            raise SystemExit(1)
     else:
         # Polling mode for local development
         logger.info("Running in POLLING mode (local)")
-        application.run_polling(
-            allowed_updates=[
-                "message", "edited_message", "channel_post", "edited_channel_post",
-                "inline_query", "chosen_inline_result", "callback_query",
-                "shipping_query", "pre_checkout_query", "poll", "poll_answer",
-                "my_chat_member", "chat_member", "chat_join_request",
-            ]
-        )
+        try:
+            application.run_polling(
+                allowed_updates=[
+                    "message", "edited_message", "channel_post", "edited_channel_post",
+                    "inline_query", "chosen_inline_result", "callback_query",
+                    "shipping_query", "pre_checkout_query", "poll", "poll_answer",
+                    "my_chat_member", "chat_member", "chat_join_request",
+                ]
+            )
+        except Conflict:
+            logger.critical(
+                "Telegram Conflict detected at startup. Another instance is already using this BOT_TOKEN. "
+                "Stop duplicate instances (local/hosting/CI) and restart only one bot process."
+            )
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":
