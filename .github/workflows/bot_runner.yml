@@ -3,16 +3,20 @@ name: Gateway TG Bot Runner
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 */5 * * *"
+    - cron: "*/30 * * * *"
+
+permissions:
+  contents: read
+  actions: write
 
 concurrency:
   group: gateway-tg-bot-runner
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 355
     env:
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       GROUP_IDS: ${{ secrets.GROUP_IDS }}
@@ -29,13 +33,29 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run bot loop (~4h50m)
+      - name: Run bot loop (~5h45m)
         shell: bash
         run: |
-          end=$((SECONDS + 17400))
+          end=$((SECONDS + 20700))
           while [ $SECONDS -lt $end ]; do
             echo "Starting bot process..."
             python -u bot.py || true
             echo "Bot stopped; restarting in 5s..."
             sleep 5
           done
+
+      - name: Chain next run
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          GH_REF: ${{ github.ref_name }}
+        run: |
+          echo "Dispatching next workflow run to keep bot online..."
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GH_REPO}/actions/workflows/bot_runner.yml/dispatches" \
+            -d "{\"ref\":\"${GH_REF}\"}" >/dev/null
