@@ -366,7 +366,7 @@ def _parse_target_link(link: str) -> tuple[int | str, int | None, int | None] | 
     return None
 
 
-def _parse_section_link(link: str) -> tuple[int, int] | None:
+def _parse_section_link(link: str) -> tuple[int, int, int] | None:
     raw = (link or "").strip()
 
     # Section/topic links:
@@ -382,8 +382,9 @@ def _parse_section_link(link: str) -> tuple[int, int] | None:
 
     internal_chat = int(m.group(1))
     topic_id = int(m.group(2))
+    anchor_message_id = int(m.group(3)) if m.group(3) else topic_id
     chat_id = int(f"-100{internal_chat}")
-    return chat_id, topic_id
+    return chat_id, topic_id, anchor_message_id
 
 
 def _is_copy_messages_flow(user_id: int) -> bool:
@@ -430,6 +431,18 @@ async def _get_mtproto_client():
     await client.start(bot_token=BOT_TOKEN)
     _mtproto_client = client
     return _mtproto_client
+
+
+def _mtproto_ready() -> bool:
+    if TelegramClient is None or StringSession is None:
+        return False
+    if not TELEGRAM_API_ID or not TELEGRAM_API_HASH:
+        return False
+    try:
+        int(TELEGRAM_API_ID)
+    except ValueError:
+        return False
+    return True
 
 
 def _extract_topic_message_ids(messages, topic_id: int) -> list[int]:
@@ -484,14 +497,28 @@ async def _copy_section_messages(
     context: ContextTypes.DEFAULT_TYPE,
     source_chat_id: int,
     source_topic_id: int,
+    source_anchor_message_id: int,
     destination_chat_id: int,
     destination_topic_id: int,
 ) -> tuple[int, str | None]:
-    message_ids = await _collect_topic_message_ids(source_chat_id, source_topic_id)
+    message_ids: list[int] = []
+
+    if _mtproto_ready():
+        message_ids = await _collect_topic_message_ids(source_chat_id, source_topic_id)
+
+    if not message_ids:
+        message_ids = await _collect_bot_message_ids_with_probe(
+            context=context,
+            source_chat_id=source_chat_id,
+            source_anchor_message_id=source_anchor_message_id,
+            destination_chat_id=destination_chat_id,
+            destination_topic_id=destination_topic_id,
+        )
+
     if not message_ids:
         return 0, (
-            "I couldn't find any messages in that section, or MTProto is not configured yet. "
-            "Set TELEGRAM_API_ID and TELEGRAM_API_HASH in your environment."
+            "I couldn't find bot-sent messages from that link point. "
+            "Send an older link in the same section and try again."
         )
 
     copied = 0
@@ -517,6 +544,82 @@ async def _copy_section_messages(
         return 0, "I couldn't copy any messages. Check bot permissions in both sections and try again."
 
     return copied, None
+
+
+async def _probe_message_from_this_bot(
+    context: ContextTypes.DEFAULT_TYPE,
+    source_chat_id: int,
+    message_id: int,
+    destination_chat_id: int,
+    destination_topic_id: int,
+) -> bool | None:
+    temp = None
+    try:
+        temp = await context.bot.forward_message(
+            chat_id=destination_chat_id,
+            from_chat_id=source_chat_id,
+            message_id=message_id,
+            disable_notification=True,
+            message_thread_id=destination_topic_id,
+        )
+    except (BadRequest, Forbidden):
+        return None
+
+    is_bot_origin = False
+    try:
+        origin = getattr(temp, "forward_origin", None)
+        sender_user = getattr(origin, "sender_user", None)
+        if sender_user and sender_user.id == context.bot.id:
+            is_bot_origin = True
+    finally:
+        try:
+            await context.bot.delete_message(
+                chat_id=destination_chat_id,
+                message_id=temp.message_id,
+            )
+        except (BadRequest, Forbidden):
+            pass
+
+    return is_bot_origin
+
+
+async def _collect_bot_message_ids_with_probe(
+    context: ContextTypes.DEFAULT_TYPE,
+    source_chat_id: int,
+    source_anchor_message_id: int,
+    destination_chat_id: int,
+    destination_topic_id: int,
+) -> list[int]:
+    window_back = 200
+    window_forward = 2000
+    stop_after_miss = 180
+
+    start_id = max(1, source_anchor_message_id - window_back)
+    end_id = source_anchor_message_id + window_forward
+
+    collected: list[int] = []
+    misses_after_found = 0
+
+    for message_id in range(start_id, end_id + 1):
+        is_bot_origin = await _probe_message_from_this_bot(
+            context=context,
+            source_chat_id=source_chat_id,
+            message_id=message_id,
+            destination_chat_id=destination_chat_id,
+            destination_topic_id=destination_topic_id,
+        )
+
+        if is_bot_origin:
+            collected.append(message_id)
+            misses_after_found = 0
+            continue
+
+        if collected:
+            misses_after_found += 1
+            if misses_after_found >= stop_after_miss:
+                break
+
+    return collected
 
 
 async def _finalize_add_store(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -704,7 +807,7 @@ async def _handle_copy_messages_text(update: Update, context: ContextTypes.DEFAU
             )
             return True
 
-        source_chat_id, source_topic_id = parsed
+        source_chat_id, source_topic_id, source_anchor_message_id = parsed
         if not await _is_user_admin_in_chat(context, source_chat_id, user_id):
             await _reply_text_tracked(
                 update.message,
@@ -715,6 +818,7 @@ async def _handle_copy_messages_text(update: Update, context: ContextTypes.DEFAU
 
         data["source_chat_id"] = source_chat_id
         data["source_topic_id"] = source_topic_id
+        data["source_anchor_message_id"] = source_anchor_message_id
         flow["step"] = "destination_section"
         await _reply_text_tracked(
             update.message,
@@ -733,7 +837,7 @@ async def _handle_copy_messages_text(update: Update, context: ContextTypes.DEFAU
             )
             return True
 
-        destination_chat_id, destination_topic_id = parsed
+        destination_chat_id, destination_topic_id, _destination_anchor_message_id = parsed
         if not await _is_user_admin_in_chat(context, destination_chat_id, user_id):
             await _reply_text_tracked(
                 update.message,
@@ -748,6 +852,7 @@ async def _handle_copy_messages_text(update: Update, context: ContextTypes.DEFAU
             context=context,
             source_chat_id=data["source_chat_id"],
             source_topic_id=data["source_topic_id"],
+            source_anchor_message_id=data["source_anchor_message_id"],
             destination_chat_id=destination_chat_id,
             destination_topic_id=destination_topic_id,
         )
