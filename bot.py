@@ -320,6 +320,13 @@ def _is_add_store_flow(user_id: int) -> bool:
     )
 
 
+def _is_custom_message_flow(user_id: int) -> bool:
+    return (
+        user_id in pending
+        and pending[user_id].get("mode") == "custom_message"
+    )
+
+
 def _is_addstore_trigger_text(text: str) -> bool:
     import re
 
@@ -354,6 +361,229 @@ def _is_copymessages_trigger_text(text: str) -> bool:
         return True
 
     return "admin" in normalized and "copymessages" in normalized
+
+
+def _is_custommessage_trigger_text(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+
+    for ch in ("<", ">", "[", "]", "(", ")", "{", "}", "`", '"', "'"):
+        normalized = normalized.replace(ch, "")
+    for dash in ("–", "—", "‑", "−", "_"):
+        normalized = normalized.replace(dash, "-")
+
+    normalized = re.sub(r"\s+", "", normalized)
+    if normalized in {"admin-custommessage", "admincustommessage"}:
+        return True
+
+    return "admin" in normalized and "custommessage" in normalized
+
+
+def _custom_keyboard_from_specs(button_specs: list[list[dict[str, str]]]) -> InlineKeyboardMarkup | None:
+    if not button_specs:
+        return None
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(btn["text"], url=btn["url"]) for btn in row]
+        for row in button_specs
+    ])
+
+
+def _custom_preview_keyboard(button_specs: list[list[dict[str, str]]]) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if button_specs:
+        rows.extend([
+            [InlineKeyboardButton(btn["text"], url=btn["url"]) for btn in row]
+            for row in button_specs
+        ])
+    rows.append([
+        InlineKeyboardButton("✅ Confirm", callback_data="custom_preview_confirm"),
+        InlineKeyboardButton("❌ Cancel", callback_data="custom_preview_cancel"),
+    ])
+    return InlineKeyboardMarkup(rows)
+
+
+def _dynamic_bar(value: int, total: int, width: int = 12) -> str:
+    total = max(1, total)
+    value = max(0, min(value, total))
+    filled = int((value / total) * width)
+    return "[" + ("█" * filled) + ("░" * (width - filled)) + "]"
+
+
+def _parse_custom_button_specs(raw_text: str) -> tuple[str, list[list[dict[str, str]]]]:
+    button_specs: list[list[dict[str, str]]] = []
+
+    def _repl(match: re.Match) -> str:
+        body = (match.group(1) or "").strip()
+        parsed = re.match(r"^(.+?)\((https?://[^)\s]+)\)$", body, flags=re.IGNORECASE)
+        if not parsed:
+            return ""
+        label = parsed.group(1).strip()
+        url = parsed.group(2).strip()
+        if not label:
+            return ""
+        button_specs.append([{"text": label, "url": url}])
+        return ""
+
+    cleaned_text = re.sub(r"<button>(.*?)<button>", _repl, raw_text, flags=re.IGNORECASE | re.DOTALL)
+    return cleaned_text, button_specs
+
+
+def _parse_custom_dynamic_spec(raw_text: str) -> tuple[str, dict | None]:
+    dynamic: dict | None = None
+
+    def _repl_countdown(match: re.Match) -> str:
+        nonlocal dynamic
+        seconds = int(match.group(1))
+        if dynamic is None:
+            dynamic = {"type": "countdown", "total": max(1, seconds)}
+        return ""
+
+    text = re.sub(r"<countdown(\d+)>", _repl_countdown, raw_text, flags=re.IGNORECASE)
+
+    if re.search(r"<progressbar>", text, flags=re.IGNORECASE):
+        text = re.sub(r"<progressbar>", "", text, flags=re.IGNORECASE)
+        if dynamic is None:
+            dynamic = {"type": "progress_up", "total": 100}
+
+    if re.search(r"<progressbardown>", text, flags=re.IGNORECASE):
+        text = re.sub(r"<progressbardown>", "", text, flags=re.IGNORECASE)
+        if dynamic is None:
+            dynamic = {"type": "progress_down", "total": 100}
+
+    return text, dynamic
+
+
+def _render_custom_dynamic_line(dynamic: dict, elapsed_seconds: int) -> tuple[str, bool]:
+    dynamic_type = dynamic.get("type")
+    total = int(dynamic.get("total", 0))
+
+    if dynamic_type == "countdown":
+        seconds_left = max(0, total - elapsed_seconds)
+        line = f"⏳ {seconds_left}s {_dynamic_bar(seconds_left, total)}"
+        return line, seconds_left <= 0
+
+    if dynamic_type == "progress_up":
+        progress = min(total, elapsed_seconds)
+        line = f"📈 Progress: {_dynamic_bar(progress, total)} {progress}%"
+        return line, progress >= total
+
+    if dynamic_type == "progress_down":
+        left = max(0, total - elapsed_seconds)
+        line = f"📉 Progress: {_dynamic_bar(left, total)} {left}%"
+        return line, left <= 0
+
+    return "", False
+
+
+def _parse_custom_message_template(raw_text: str) -> tuple[str, list[list[dict[str, str]]], dict | None]:
+    text_no_buttons, button_specs = _parse_custom_button_specs(raw_text)
+    text_no_dynamic, dynamic = _parse_custom_dynamic_spec(text_no_buttons)
+
+    placeholders: dict[str, str] = {}
+    placeholder_index = 0
+
+    def _hold(html_text: str) -> str:
+        nonlocal placeholder_index
+        token = f"__CMSG_PLACEHOLDER_{placeholder_index}__"
+        placeholder_index += 1
+        placeholders[token] = html_text
+        return token
+
+    def _sub_style(text_value: str, marker: str, html_tag: str) -> str:
+        pattern = re.compile(rf"<{marker}>(.*?)<{marker}>", flags=re.IGNORECASE | re.DOTALL)
+        return pattern.sub(lambda m: _hold(f"<{html_tag}>{escape((m.group(1) or '').strip())}</{html_tag}>"), text_value)
+
+    parsed_text = text_no_dynamic
+
+    parsed_text = re.sub(
+        r"<url>(.+?)\((https?://[^)\s]+)\)",
+        lambda m: _hold(f"<a href=\"{escape(m.group(2).strip())}\">{escape(m.group(1).strip())}</a>"),
+        parsed_text,
+        flags=re.IGNORECASE,
+    )
+
+    parsed_text = _sub_style(parsed_text, "bold", "b")
+    parsed_text = _sub_style(parsed_text, "italic", "i")
+    parsed_text = _sub_style(parsed_text, "underlined", "u")
+    parsed_text = _sub_style(parsed_text, "spoiler", "tg-spoiler")
+    parsed_text = _sub_style(parsed_text, "strike", "s")
+    parsed_text = _sub_style(parsed_text, "monospace", "code")
+
+    parsed_text = escape(parsed_text)
+    for key, value in placeholders.items():
+        parsed_text = parsed_text.replace(key, value)
+
+    parsed_text = parsed_text.strip()
+    return parsed_text, button_specs, dynamic
+
+
+def _build_custom_rendered_text(base_text: str, dynamic: dict | None, elapsed_seconds: int = 0) -> tuple[str, bool]:
+    body = (base_text or "").strip()
+    should_delete = False
+
+    if dynamic:
+        dynamic_line, should_delete = _render_custom_dynamic_line(dynamic, elapsed_seconds)
+        if dynamic_line:
+            body = f"{body}\n\n{dynamic_line}" if body else dynamic_line
+
+    if not body:
+        body = "<i>Empty message</i>"
+
+    return body, should_delete
+
+
+async def _custom_dynamic_message_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    data = context.job.data or {}
+    chat_id = data.get("chat_id")
+    message_id = data.get("message_id")
+    base_text = data.get("base_text", "")
+    dynamic = data.get("dynamic")
+    button_specs = data.get("button_specs", [])
+    started_at = int(data.get("started_at", time.time()))
+
+    if not chat_id or not message_id or not dynamic:
+        context.job.schedule_removal()
+        return
+
+    elapsed_seconds = max(0, int(time.time()) - started_at)
+    rendered_text, should_delete = _build_custom_rendered_text(base_text, dynamic, elapsed_seconds)
+
+    try:
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=rendered_text,
+            parse_mode="HTML",
+            reply_markup=_custom_keyboard_from_specs(button_specs),
+            disable_web_page_preview=True,
+        )
+    except BadRequest as exc:
+        if "message is not modified" not in str(exc).lower():
+            context.job.schedule_removal()
+            return
+    except Forbidden:
+        context.job.schedule_removal()
+        return
+
+    if should_delete:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        except (BadRequest, Forbidden):
+            pass
+        context.job.schedule_removal()
+
+
+async def _start_custom_message_flow(update: Update) -> None:
+    user_id = update.effective_user.id
+    _dm_messages[user_id] = []
+    _track_dm_message(user_id, update.message.message_id)
+    pending[user_id] = {
+        "mode": "custom_message",
+        "step": "compose",
+        "data": {},
+    }
+    await _reply_text_tracked(update.message, user_id, "👋 Sure! what message would you like me to send?")
 
 
 def _track_dm_message(user_id: int, message_id: int) -> None:
@@ -1075,6 +1305,147 @@ async def _send_add_store_preview(update: Update, context: ContextTypes.DEFAULT_
     return True
 
 
+async def _send_custom_message_preview(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    user_id = update.effective_user.id
+    flow = pending.get(user_id, {})
+    if flow.get("mode") != "custom_message":
+        return False
+
+    data = flow.get("data", {})
+    rendered_text, _ = _build_custom_rendered_text(
+        data.get("base_text", ""),
+        data.get("dynamic"),
+        0,
+    )
+    button_specs = data.get("button_specs", [])
+
+    sent = await context.bot.send_message(
+        chat_id=user_id,
+        text=rendered_text,
+        parse_mode="HTML",
+        reply_markup=_custom_preview_keyboard(button_specs),
+        disable_web_page_preview=True,
+    )
+    _track_dm_message(user_id, sent.message_id)
+    flow["step"] = "confirm"
+    return True
+
+
+async def _finalize_custom_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    user_id = update.effective_user.id
+    source_message = update.effective_message
+    flow = pending.get(user_id, {})
+    data = flow.get("data", {})
+
+    base_text = data.get("base_text", "")
+    button_specs = data.get("button_specs", [])
+    dynamic = data.get("dynamic")
+    target_chat_id = data.get("target_chat_id", update.effective_chat.id)
+    target_reply_to = data.get("target_reply_to")
+    target_thread_id = data.get("target_thread_id")
+
+    rendered_text, _ = _build_custom_rendered_text(base_text, dynamic, 0)
+
+    try:
+        sent = await context.bot.send_message(
+            chat_id=target_chat_id,
+            text=rendered_text,
+            parse_mode="HTML",
+            reply_markup=_custom_keyboard_from_specs(button_specs),
+            reply_to_message_id=target_reply_to,
+            message_thread_id=target_thread_id,
+            disable_web_page_preview=True,
+        )
+    except (BadRequest, Forbidden) as exc:
+        if source_message:
+            await _reply_text_tracked(
+                source_message,
+                user_id,
+                f"I couldn't send it there: {exc}\nSend another destination link.",
+            )
+        return False
+
+    if dynamic:
+        context.application.job_queue.run_repeating(
+            callback=_custom_dynamic_message_job,
+            interval=1,
+            first=1,
+            data={
+                "chat_id": target_chat_id,
+                "message_id": sent.message_id,
+                "base_text": base_text,
+                "dynamic": dynamic,
+                "button_specs": button_specs,
+                "started_at": int(time.time()),
+            },
+            name=f"custom_dynamic_{target_chat_id}_{sent.message_id}",
+        )
+
+    pending.pop(user_id, None)
+    await _clear_tracked_dm_messages(context, user_id)
+    return True
+
+
+async def _handle_custom_message_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    user_id = update.effective_user.id
+    flow = pending.get(user_id)
+    if not flow or flow.get("mode") != "custom_message":
+        return False
+
+    text = (update.message.text or "").strip()
+    step = flow.get("step")
+    data = flow.setdefault("data", {})
+    _track_dm_message(user_id, update.message.message_id)
+
+    if step == "compose":
+        base_text, button_specs, dynamic = _parse_custom_message_template(text)
+        if not base_text and not button_specs and not dynamic:
+            await _reply_text_tracked(
+                update.message,
+                user_id,
+                "I couldn't parse any message content. Please send your custom message again.",
+            )
+            return True
+
+        data["base_text"] = base_text
+        data["button_specs"] = button_specs
+        data["dynamic"] = dynamic
+        flow["step"] = "destination"
+        await _reply_text_tracked(
+            update.message,
+            user_id,
+            "Thank you! 🙏 Where would you like me to post this message?",
+        )
+        return True
+
+    if step == "destination":
+        parsed = _parse_target_link(text)
+        if not parsed:
+            await _reply_text_tracked(
+                update.message,
+                user_id,
+                "Invalid link. Send a Telegram post link like https://t.me/c/3857658928/208",
+            )
+            return True
+
+        target_chat_id, reply_to_message_id, message_thread_id = parsed
+        data["target_chat_id"] = target_chat_id
+        data["target_reply_to"] = reply_to_message_id
+        data["target_thread_id"] = message_thread_id
+        await _send_custom_message_preview(update, context)
+        return True
+
+    if step == "confirm":
+        await _reply_text_tracked(
+            update.message,
+            user_id,
+            "Please use ✅ Confirm or ❌ Cancel below the preview.",
+        )
+        return True
+
+    return False
+
+
 async def _handle_add_store_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user_id = update.effective_user.id
     flow = pending.get(user_id)
@@ -1453,6 +1824,29 @@ async def store_preview_callback(update: Update, context: ContextTypes.DEFAULT_T
         await _finalize_add_store(update, context)
 
 
+async def custom_preview_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if query.message.chat.type != "private":
+        return
+
+    user_id = query.from_user.id
+    flow = pending.get(user_id)
+    if not flow or flow.get("mode") != "custom_message" or flow.get("step") != "confirm":
+        return
+
+    if query.data == "custom_preview_cancel":
+        pending.pop(user_id, None)
+        await _clear_tracked_dm_messages(context, user_id)
+        return
+
+    if query.data == "custom_preview_confirm":
+        if query.message:
+            _track_dm_message(user_id, query.message.message_id)
+        await _finalize_custom_message(update, context)
+
+
 # ─── Revocation job ─────────────────────────────────────────────────────────
 
 async def revoke_links_job(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1563,6 +1957,10 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await _start_copy_messages_flow(update)
         return
 
+    if update.effective_chat.type == "private" and _is_custommessage_trigger_text(text):
+        await _start_custom_message_flow(update)
+        return
+
     if _is_add_store_flow(user_id):
         handled = await _handle_add_store_text(update, context)
         if handled:
@@ -1570,6 +1968,11 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     if _is_copy_messages_flow(user_id):
         handled = await _handle_copy_messages_text(update, context)
+        if handled:
+            return
+
+    if _is_custom_message_flow(user_id):
+        handled = await _handle_custom_message_text(update, context)
         if handled:
             return
 
@@ -1659,6 +2062,13 @@ async def admin_copymessages_trigger(update: Update, context: ContextTypes.DEFAU
         return
     if _is_copymessages_trigger_text(update.message.text):
         await _start_copy_messages_flow(update)
+
+
+async def admin_custommessage_trigger(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_chat.type != "private" or not update.message or not update.message.text:
+        return
+    if _is_custommessage_trigger_text(update.message.text):
+        await _start_custom_message_flow(update)
 
 
 # ─── Dot-command text trigger handler ────────────────────────────────────────
@@ -2103,6 +2513,12 @@ def main() -> None:
         )
     )
     application.add_handler(
+        MessageHandler(
+            filters.Regex(r"(?i)custom\s*[-_–—‑]?\s*message") & filters.ChatType.PRIVATE,
+            admin_custommessage_trigger,
+        )
+    )
+    application.add_handler(
         CallbackQueryHandler(language_callback, pattern=r"^lang_(en|es)$")
     )
     application.add_handler(
@@ -2223,6 +2639,9 @@ def main() -> None:
     )
     application.add_handler(
         CallbackQueryHandler(store_preview_callback, pattern=r"^store_preview_(confirm|cancel)$")
+    )
+    application.add_handler(
+        CallbackQueryHandler(custom_preview_callback, pattern=r"^custom_preview_(confirm|cancel)$")
     )
     application.add_handler(
         CallbackQueryHandler(unmute_callback, pattern=r"^unmute_\d+$")
