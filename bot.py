@@ -29,6 +29,13 @@ from telegram.ext import (
     filters,
 )
 
+try:
+    from telethon import TelegramClient
+    from telethon.sessions import StringSession
+except ImportError:
+    TelegramClient = None
+    StringSession = None
+
 # ── Module imports ───────────────────────────────────────────────────────────
 from admin import (
     admin_only,
@@ -121,6 +128,8 @@ from welcome import (
 load_dotenv()
 
 BOT_TOKEN: str = os.environ["BOT_TOKEN"]
+TELEGRAM_API_ID: str = os.environ.get("TELEGRAM_API_ID", "")
+TELEGRAM_API_HASH: str = os.environ.get("TELEGRAM_API_HASH", "")
 
 def _parse_csv_env(key: str) -> list[str]:
     raw = os.environ.get(key, "")
@@ -175,6 +184,7 @@ _dm_messages: dict[int, list[int]] = {}
 # Pending join requests: {(chat_id, user_id): timestamp}
 _pending_requests: dict[tuple[int, int], float] = {}
 PENDING_APPROVAL_TIMEOUT = 36 * 3600  # 36 hours in seconds
+_mtproto_client = None
 
 
 # ─── Utilities ───────────────────────────────────────────────────────────────
@@ -256,6 +266,23 @@ def _is_addstore_trigger_text(text: str) -> bool:
     return "admin" in normalized and "addstore" in normalized
 
 
+def _is_copymessages_trigger_text(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+
+    for ch in ("<", ">", "[", "]", "(", ")", "{", "}", "`", '"', "'"):
+        normalized = normalized.replace(ch, "")
+    for dash in ("–", "—", "‑", "−", "_"):
+        normalized = normalized.replace(dash, "-")
+
+    normalized = re.sub(r"\s+", "", normalized)
+    if normalized in {"admin-copymessages", "admincopymessages"}:
+        return True
+
+    return "admin" in normalized and "copymessages" in normalized
+
+
 def _track_dm_message(user_id: int, message_id: int) -> None:
     _dm_messages.setdefault(user_id, []).append(message_id)
 
@@ -286,6 +313,22 @@ async def _start_add_store_flow(update: Update) -> None:
         "data": {},
     }
     await _reply_text_tracked(update.message, user_id, "Give me the store name.")
+
+
+async def _start_copy_messages_flow(update: Update) -> None:
+    user_id = update.effective_user.id
+    _dm_messages[user_id] = []
+    _track_dm_message(user_id, update.message.message_id)
+    pending[user_id] = {
+        "mode": "copy_messages",
+        "step": "source_section",
+        "data": {},
+    }
+    await _reply_text_tracked(
+        update.message,
+        user_id,
+        "Sure, which messages would you like me to scrape?",
+    )
 
 
 def _parse_target_link(link: str) -> tuple[int | str, int | None, int | None] | None:
@@ -321,6 +364,159 @@ def _parse_target_link(link: str) -> tuple[int | str, int | None, int | None] | 
         return f"@{username}", message_id, None
 
     return None
+
+
+def _parse_section_link(link: str) -> tuple[int, int] | None:
+    raw = (link or "").strip()
+
+    # Section/topic links:
+    # - https://t.me/c/<internal_chat_id>/<topic_id>
+    # - https://t.me/c/<internal_chat_id>/<topic_id>/<message_id>
+    m = re.match(
+        r"^https?://t\.me/c/(\d+)/(\d+)(?:/(\d+))?/?$",
+        raw,
+        flags=re.IGNORECASE,
+    )
+    if not m:
+        return None
+
+    internal_chat = int(m.group(1))
+    topic_id = int(m.group(2))
+    chat_id = int(f"-100{internal_chat}")
+    return chat_id, topic_id
+
+
+def _is_copy_messages_flow(user_id: int) -> bool:
+    return (
+        user_id in pending
+        and pending[user_id].get("mode") == "copy_messages"
+    )
+
+
+async def _is_user_admin_in_chat(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    user_id: int,
+) -> bool:
+    try:
+        member = await context.bot.get_chat_member(chat_id, user_id)
+    except (BadRequest, Forbidden):
+        return False
+
+    return member.status in {"administrator", "creator"}
+
+
+async def _get_mtproto_client():
+    global _mtproto_client
+
+    if _mtproto_client is not None and _mtproto_client.is_connected():
+        return _mtproto_client
+
+    if TelegramClient is None or StringSession is None:
+        logger.error("Telethon is not installed; copy-messages feature is unavailable")
+        return None
+
+    if not TELEGRAM_API_ID or not TELEGRAM_API_HASH:
+        logger.error("TELEGRAM_API_ID / TELEGRAM_API_HASH are missing")
+        return None
+
+    try:
+        api_id = int(TELEGRAM_API_ID)
+    except ValueError:
+        logger.error("Invalid TELEGRAM_API_ID: must be an integer")
+        return None
+
+    client = TelegramClient(StringSession(), api_id, TELEGRAM_API_HASH)
+    await client.start(bot_token=BOT_TOKEN)
+    _mtproto_client = client
+    return _mtproto_client
+
+
+def _extract_topic_message_ids(messages, topic_id: int) -> list[int]:
+    ids: list[int] = []
+    for msg in messages:
+        if not msg:
+            continue
+
+        msg_id = getattr(msg, "id", None)
+        if not msg_id:
+            continue
+
+        if msg_id == topic_id:
+            ids.append(msg_id)
+            continue
+
+        reply_to = getattr(msg, "reply_to", None)
+        top_id = getattr(reply_to, "reply_to_top_id", None) if reply_to else None
+        if top_id == topic_id:
+            ids.append(msg_id)
+
+    return sorted(set(ids))
+
+
+async def _collect_topic_message_ids(chat_id: int, topic_id: int) -> list[int]:
+    client = await _get_mtproto_client()
+    if client is None:
+        return []
+
+    try:
+        entity = await client.get_entity(chat_id)
+    except Exception as exc:
+        logger.warning("Could not resolve source chat %s: %s", chat_id, exc)
+        return []
+
+    collected = []
+    try:
+        root_msg = await client.get_messages(entity, ids=topic_id)
+        if root_msg:
+            collected.append(root_msg)
+
+        async for msg in client.iter_messages(entity, reverse=True, reply_to=topic_id):
+            collected.append(msg)
+    except Exception as exc:
+        logger.warning("Could not fetch topic messages for %s/%s: %s", chat_id, topic_id, exc)
+        return []
+
+    return _extract_topic_message_ids(collected, topic_id)
+
+
+async def _copy_section_messages(
+    context: ContextTypes.DEFAULT_TYPE,
+    source_chat_id: int,
+    source_topic_id: int,
+    destination_chat_id: int,
+    destination_topic_id: int,
+) -> tuple[int, str | None]:
+    message_ids = await _collect_topic_message_ids(source_chat_id, source_topic_id)
+    if not message_ids:
+        return 0, (
+            "I couldn't find any messages in that section, or MTProto is not configured yet. "
+            "Set TELEGRAM_API_ID and TELEGRAM_API_HASH in your environment."
+        )
+
+    copied = 0
+    for message_id in message_ids:
+        try:
+            await context.bot.copy_message(
+                chat_id=destination_chat_id,
+                from_chat_id=source_chat_id,
+                message_id=message_id,
+                message_thread_id=destination_topic_id,
+            )
+            copied += 1
+        except (BadRequest, Forbidden) as exc:
+            logger.warning(
+                "Could not copy message %s from %s to %s: %s",
+                message_id,
+                source_chat_id,
+                destination_chat_id,
+                exc,
+            )
+
+    if copied == 0:
+        return 0, "I couldn't copy any messages. Check bot permissions in both sections and try again."
+
+    return copied, None
 
 
 async def _finalize_add_store(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -482,6 +678,91 @@ async def _handle_add_store_text(update: Update, context: ContextTypes.DEFAULT_T
         data["target_thread_id"] = message_thread_id
 
         await _finalize_add_store(update, context)
+        return True
+
+    return False
+
+
+async def _handle_copy_messages_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    user_id = update.effective_user.id
+    flow = pending.get(user_id)
+    if not flow or flow.get("mode") != "copy_messages":
+        return False
+
+    text = (update.message.text or "").strip()
+    step = flow.get("step")
+    data = flow.setdefault("data", {})
+    _track_dm_message(user_id, update.message.message_id)
+
+    if step == "source_section":
+        parsed = _parse_section_link(text)
+        if not parsed:
+            await _reply_text_tracked(
+                update.message,
+                user_id,
+                "Invalid section link. Send something like https://t.me/c/3857658928/148",
+            )
+            return True
+
+        source_chat_id, source_topic_id = parsed
+        if not await _is_user_admin_in_chat(context, source_chat_id, user_id):
+            await _reply_text_tracked(
+                update.message,
+                user_id,
+                "You must be an admin in that source chat/section before I can scrape it.",
+            )
+            return True
+
+        data["source_chat_id"] = source_chat_id
+        data["source_topic_id"] = source_topic_id
+        flow["step"] = "destination_section"
+        await _reply_text_tracked(
+            update.message,
+            user_id,
+            "Where would you like me to send all these messages to?",
+        )
+        return True
+
+    if step == "destination_section":
+        parsed = _parse_section_link(text)
+        if not parsed:
+            await _reply_text_tracked(
+                update.message,
+                user_id,
+                "Invalid section link. Send something like https://t.me/c/3857658928/147",
+            )
+            return True
+
+        destination_chat_id, destination_topic_id = parsed
+        if not await _is_user_admin_in_chat(context, destination_chat_id, user_id):
+            await _reply_text_tracked(
+                update.message,
+                user_id,
+                "You must be an admin in that destination chat/section before I can post there.",
+            )
+            return True
+
+        await _reply_text_tracked(update.message, user_id, "Scraping and copying messages now...")
+
+        copied, err = await _copy_section_messages(
+            context=context,
+            source_chat_id=data["source_chat_id"],
+            source_topic_id=data["source_topic_id"],
+            destination_chat_id=destination_chat_id,
+            destination_topic_id=destination_topic_id,
+        )
+
+        pending.pop(user_id, None)
+
+        if err:
+            await _reply_text_tracked(update.message, user_id, err)
+            return True
+
+        await _reply_text_tracked(
+            update.message,
+            user_id,
+            f"Done. I copied {copied} message(s) to that section.",
+        )
         return True
 
     return False
@@ -660,8 +941,17 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await _start_add_store_flow(update)
         return
 
+    if update.effective_chat.type == "private" and _is_copymessages_trigger_text(text):
+        await _start_copy_messages_flow(update)
+        return
+
     if _is_add_store_flow(user_id):
         handled = await _handle_add_store_text(update, context)
+        if handled:
+            return
+
+    if _is_copy_messages_flow(user_id):
+        handled = await _handle_copy_messages_text(update, context)
         if handled:
             return
 
@@ -769,6 +1059,13 @@ async def admin_addstore_trigger(update: Update, context: ContextTypes.DEFAULT_T
         return
     if _is_addstore_trigger_text(update.message.text):
         await _start_add_store_flow(update)
+
+
+async def admin_copymessages_trigger(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_chat.type != "private" or not update.message or not update.message.text:
+        return
+    if _is_copymessages_trigger_text(update.message.text):
+        await _start_copy_messages_flow(update)
 
 
 # ─── Dot-command text trigger handler ────────────────────────────────────────
@@ -1204,6 +1501,12 @@ def main() -> None:
         MessageHandler(
             filters.Regex(r"(?i)add\s*[-_–—‑]?\s*store") & filters.ChatType.PRIVATE,
             admin_addstore_trigger,
+        )
+    )
+    application.add_handler(
+        MessageHandler(
+            filters.Regex(r"(?i)copy\s*[-_–—‑]?\s*messages") & filters.ChatType.PRIVATE,
+            admin_copymessages_trigger,
         )
     )
     application.add_handler(
