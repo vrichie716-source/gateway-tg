@@ -165,12 +165,29 @@ STORE_COUNTRIES: dict[str, str] = {
 }
 
 STORE_TIMEFRAMES: dict[str, str] = {
-    "TF_1_4_DAYS": "1-4 Days",
+    "TF_INSTANT": "Instant",
+    "TF_1_5_DAYS": "1-5 Days",
     "TF_7_DAYS": "7 Days",
     "TF_1_2_WEEKS": "1-2 Weeks",
     "TF_2_3_WEEKS": "2-3 Weeks",
     "TF_3_4_WEEKS": "3-4 Weeks",
     "TF_4_WEEKS": "4 Weeks",
+}
+
+STORE_METHODS: dict[str, str] = {
+    "M_FTID_V3": "FTID v3",
+    "M_WEIGHTED_FTID": "Weighted FTID",
+    "M_LIT": "LIT",
+    "M_DNA": "DNA",
+    "M_EB": "EB",
+    "M_FTID_ROS": "FTID ROS",
+    "M_FTID_ROD": "FTID ROD",
+    "M_FTIDNA": "FTIDNA",
+    "M_DMG_RTS": "DMG RTS",
+    "M_RTS": "RTS",
+    "M_UTD": "UTD",
+    "M_PTDNA": "PTDNA",
+    "M_PEB": "PEB",
 }
 
 STORE_WATERMARK = "𝐎𝐋𝐈𝐌𝐏𝐎 Watermarked."
@@ -208,7 +225,7 @@ def generate_math_problem() -> tuple[str, int]:
 def _store_country_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("US", callback_data="store_country_US"),
+            InlineKeyboardButton("USA", callback_data="store_country_US"),
             InlineKeyboardButton("CA", callback_data="store_country_CA"),
             InlineKeyboardButton("UK", callback_data="store_country_UK"),
         ],
@@ -222,13 +239,69 @@ def _store_country_keyboard() -> InlineKeyboardMarkup:
 
 def _store_timeframe_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("1-4 Days", callback_data="store_timeframe_TF_1_4_DAYS")],
+        [InlineKeyboardButton("Instant", callback_data="store_timeframe_TF_INSTANT")],
+        [InlineKeyboardButton("1-5 Days", callback_data="store_timeframe_TF_1_5_DAYS")],
         [InlineKeyboardButton("7 Days", callback_data="store_timeframe_TF_7_DAYS")],
         [InlineKeyboardButton("1-2 Weeks", callback_data="store_timeframe_TF_1_2_WEEKS")],
         [InlineKeyboardButton("2-3 Weeks", callback_data="store_timeframe_TF_2_3_WEEKS")],
         [InlineKeyboardButton("3-4 Weeks", callback_data="store_timeframe_TF_3_4_WEEKS")],
         [InlineKeyboardButton("4 Weeks", callback_data="store_timeframe_TF_4_WEEKS")],
     ])
+
+
+def _store_method_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("FTID v3", callback_data="store_method_M_FTID_V3")],
+        [InlineKeyboardButton("Weighted FTID", callback_data="store_method_M_WEIGHTED_FTID")],
+        [InlineKeyboardButton("LIT", callback_data="store_method_M_LIT")],
+        [InlineKeyboardButton("DNA", callback_data="store_method_M_DNA")],
+        [InlineKeyboardButton("EB", callback_data="store_method_M_EB")],
+        [InlineKeyboardButton("FTID ROS", callback_data="store_method_M_FTID_ROS")],
+        [InlineKeyboardButton("FTID ROD", callback_data="store_method_M_FTID_ROD")],
+        [InlineKeyboardButton("FTIDNA", callback_data="store_method_M_FTIDNA")],
+        [InlineKeyboardButton("DMG RTS", callback_data="store_method_M_DMG_RTS")],
+        [InlineKeyboardButton("RTS", callback_data="store_method_M_RTS")],
+        [InlineKeyboardButton("UTD", callback_data="store_method_M_UTD")],
+        [InlineKeyboardButton("PTDNA", callback_data="store_method_M_PTDNA")],
+        [InlineKeyboardButton("PEB", callback_data="store_method_M_PEB")],
+    ])
+
+
+def _store_notes_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("N/A", callback_data="store_notes_na")],
+    ])
+
+
+def _store_preview_keyboard(store_url: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("Visit Store", url=store_url)],
+        [
+            InlineKeyboardButton("✅ Confirm", callback_data="store_preview_confirm"),
+            InlineKeyboardButton("❌ Cancel", callback_data="store_preview_cancel"),
+        ],
+    ])
+
+
+def _build_store_caption(data: dict) -> str:
+    country_code = data.get("country", "US")
+    country_flag = STORE_COUNTRIES.get(country_code, "🇺🇸")
+
+    store_name = escape(data.get("store_name", "N/A"))
+    limit_text = escape(data.get("limit", "N/A"))
+    method_text = escape(data.get("method", "N/A"))
+    notes_text = escape(data.get("notes", "N/A"))
+    timeframe_text = escape(data.get("timeframe", "N/A"))
+
+    return (
+        f"{country_flag} {store_name} {country_flag}\n"
+        f"<code>{STORE_WATERMARK}</code>\n\n"
+        f"<b>Limit:</b> {limit_text}\n"
+        f"<b>Timeframe:</b> {timeframe_text}\n"
+        f"<b>Method:</b> {method_text}\n"
+        f"<b>Notes:</b> {notes_text}\n\n"
+        f"<code>{STORE_WATERMARK}</code>"
+    )
 
 
 def _normalize_store_url(url: str) -> str:
@@ -312,7 +385,7 @@ async def _start_add_store_flow(update: Update) -> None:
         "step": "store_name",
         "data": {},
     }
-    await _reply_text_tracked(update.message, user_id, "Give me the store name.")
+    await _reply_text_tracked(update.message, user_id, "👋 To get started, please enter the <b>Store Name:</b>", parse_mode="HTML")
 
 
 async def _start_copy_messages_flow(update: Update) -> None:
@@ -767,32 +840,12 @@ async def _collect_bot_message_ids_with_probe(
 
 async def _finalize_add_store(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user_id = update.effective_user.id
+    source_message = update.effective_message
     flow = pending.get(user_id, {})
     data = flow.get("data", {})
-
-    country_code = data.get("country", "US")
-    country_flag = STORE_COUNTRIES.get(country_code, "🇺🇸")
-
-    store_name = escape(data.get("store_name", "N/A"))
-    limit_text = escape(data.get("limit", "N/A"))
-    method_text = escape(data.get("method", "N/A"))
-    notes_text = escape(data.get("notes", "N/A"))
-    timeframe_text = escape(data.get("timeframe", "N/A"))
     store_url = data.get("store_url", "")
-
-    caption = (
-        f"{country_flag} {store_name} {country_flag}\n"
-        f"<code>{STORE_WATERMARK}</code>\n\n"
-        f"<b>Limit:</b> {limit_text}\n"
-        f"<b>Timeframe:</b> {timeframe_text}\n"
-        f"<b>Method:</b> {method_text}\n"
-        f"<b>Notes:</b> {notes_text}\n\n"
-        f"<code>{STORE_WATERMARK}</code>"
-    )
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("Visit Store", url=store_url)]
-    ])
+    caption = _build_store_caption(data)
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Visit Store", url=store_url)]])
 
     image_type = data.get("image_type")
     image_value = data.get("image")
@@ -811,13 +864,15 @@ async def _finalize_add_store(update: Update, context: ContextTypes.DEFAULT_TYPE
             message_thread_id=target_thread_id,
         )
     except (BadRequest, Forbidden) as exc:
-        await _reply_text_tracked(
-            update.message,
-            user_id,
-            f"I couldn't send it there: {exc}\nSend another destination link.",
-        )
+        if source_message:
+            await _reply_text_tracked(
+                source_message,
+                user_id,
+                f"I couldn't send it there: {exc}\nSend another destination link.",
+            )
         if image_type == "url":
-            await _reply_text_tracked(update.message, user_id, image_value)
+            if source_message:
+                await _reply_text_tracked(source_message, user_id, image_value)
         return False
 
     if target_chat_id == update.effective_chat.id:
@@ -825,6 +880,32 @@ async def _finalize_add_store(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     pending.pop(user_id, None)
     await _clear_tracked_dm_messages(context, user_id)
+    return True
+
+
+async def _send_add_store_preview(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    user_id = update.effective_user.id
+    flow = pending.get(user_id, {})
+    if flow.get("mode") != "add_store":
+        return False
+
+    data = flow.get("data", {})
+    image_value = data.get("image")
+    store_url = data.get("store_url", "")
+    if not image_value or not store_url:
+        return False
+
+    caption = _build_store_caption(data)
+
+    sent = await context.bot.send_photo(
+        chat_id=user_id,
+        photo=image_value,
+        caption=caption,
+        parse_mode="HTML",
+        reply_markup=_store_preview_keyboard(store_url),
+    )
+    _track_dm_message(user_id, sent.message_id)
+    flow["step"] = "confirm"
     return True
 
 
@@ -842,18 +923,18 @@ async def _handle_add_store_text(update: Update, context: ContextTypes.DEFAULT_T
     if step == "store_name":
         data["store_name"] = text
         flow["step"] = "image"
-        await _reply_text_tracked(update.message, user_id, "Give me the image.")
+        await _reply_text_tracked(update.message, user_id, "📸 Please upload the <b>store logo.</b>", parse_mode="HTML")
         return True
 
     if step == "image":
         normalized = _normalize_store_url(text)
         if not normalized.startswith(("http://", "https://")):
-            await _reply_text_tracked(update.message, user_id, "Give me the image.")
+            await _reply_text_tracked(update.message, user_id, "📸 Please upload the <b>store logo.</b>", parse_mode="HTML")
             return True
         data["image_type"] = "url"
         data["image"] = normalized
         flow["step"] = "store_url"
-        await _reply_text_tracked(update.message, user_id, "Give me the store URL")
+        await _reply_text_tracked(update.message, user_id, "🔗 Please provide me with the <b>store URL.</b>", parse_mode="HTML")
         return True
 
     if step == "store_url":
@@ -862,7 +943,7 @@ async def _handle_add_store_text(update: Update, context: ContextTypes.DEFAULT_T
         await _reply_text_tracked(
             update.message,
             user_id,
-            "Select the country",
+            "🌎 Choose one of the following countries:",
             reply_markup=_store_country_keyboard(),
         )
         return True
@@ -871,7 +952,7 @@ async def _handle_add_store_text(update: Update, context: ContextTypes.DEFAULT_T
         await _reply_text_tracked(
             update.message,
             user_id,
-            "Select the country",
+            "🌎 Choose one of the following countries:",
             reply_markup=_store_country_keyboard(),
         )
         return True
@@ -882,7 +963,7 @@ async def _handle_add_store_text(update: Update, context: ContextTypes.DEFAULT_T
         await _reply_text_tracked(
             update.message,
             user_id,
-            "Select timeframe",
+            "⏰ Choose the turnaround timeframe for this specific store:",
             reply_markup=_store_timeframe_keyboard(),
         )
         return True
@@ -891,21 +972,30 @@ async def _handle_add_store_text(update: Update, context: ContextTypes.DEFAULT_T
         await _reply_text_tracked(
             update.message,
             user_id,
-            "Select timeframe",
+            "⏰ Choose the turnaround timeframe for this specific store:",
             reply_markup=_store_timeframe_keyboard(),
         )
         return True
 
     if step == "method":
-        data["method"] = text
-        flow["step"] = "notes"
-        await _reply_text_tracked(update.message, user_id, "Add your notes")
+        await _reply_text_tracked(
+            update.message,
+            user_id,
+            "⚙️ <b>Select the Method.</b>",
+            parse_mode="HTML",
+            reply_markup=_store_method_keyboard(),
+        )
         return True
 
     if step == "notes":
         data["notes"] = text
         flow["step"] = "destination"
-        await _reply_text_tracked(update.message, user_id, "Where should I send this message?")
+        await _reply_text_tracked(
+            update.message,
+            user_id,
+            "🚀 Ready to Post? Please provide me the URL of the group/section. | Example: <code>https://t.me/c/3857658928/148</code>",
+            parse_mode="HTML",
+        )
         return True
 
     if step == "destination":
@@ -923,7 +1013,15 @@ async def _handle_add_store_text(update: Update, context: ContextTypes.DEFAULT_T
         data["target_reply_to"] = reply_to_message_id
         data["target_thread_id"] = message_thread_id
 
-        await _finalize_add_store(update, context)
+        await _send_add_store_preview(update, context)
+        return True
+
+    if step == "confirm":
+        await _reply_text_tracked(
+            update.message,
+            user_id,
+            "Please use ✅ Confirm or ❌ Cancel below the preview.",
+        )
         return True
 
     return False
@@ -1047,11 +1145,11 @@ async def _handle_add_store_media(update: Update) -> bool:
         data["image_type"] = "document"
         data["image"] = message.document.file_id
     else:
-        await _reply_text_tracked(update.message, user_id, "Give me the image.")
+        await _reply_text_tracked(update.message, user_id, "📸 Please upload the <b>store logo.</b>", parse_mode="HTML")
         return True
 
     flow["step"] = "store_url"
-    await _reply_text_tracked(update.message, user_id, "Give me the store URL")
+    await _reply_text_tracked(update.message, user_id, "🔗 Please provide me with the <b>store URL.</b>", parse_mode="HTML")
     return True
 
 
@@ -1075,7 +1173,12 @@ async def store_country_callback(update: Update, context: ContextTypes.DEFAULT_T
     data["country"] = country_code
     flow["step"] = "limit"
 
-    await _reply_text_tracked(query.message, user_id, "Give me the $ or item limit.")
+    await _reply_text_tracked(
+        query.message,
+        user_id,
+        "⛔️ <b>Set the Limits</b> | Example: <code>$1,000 | 10 Items.</code>",
+        parse_mode="HTML",
+    )
 
 
 async def store_timeframe_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1099,7 +1202,89 @@ async def store_timeframe_callback(update: Update, context: ContextTypes.DEFAULT
     data["timeframe"] = timeframe_label
     flow["step"] = "method"
 
-    await _reply_text_tracked(query.message, user_id, "Give me the method.")
+    await _reply_text_tracked(
+        query.message,
+        user_id,
+        "⚙️ <b>Select the Method.</b>",
+        parse_mode="HTML",
+        reply_markup=_store_method_keyboard(),
+    )
+
+
+async def store_method_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if query.message.chat.type != "private":
+        return
+
+    user_id = query.from_user.id
+    flow = pending.get(user_id)
+    if not flow or flow.get("mode") != "add_store" or flow.get("step") != "method":
+        return
+
+    method_key = query.data.replace("store_method_", "", 1)
+    method_label = STORE_METHODS.get(method_key)
+    if not method_label:
+        return
+
+    data = flow.setdefault("data", {})
+    data["method"] = method_label
+    flow["step"] = "notes"
+
+    await _reply_text_tracked(
+        query.message,
+        user_id,
+        "📝 Any specific notes?",
+        reply_markup=_store_notes_keyboard(),
+    )
+
+
+async def store_notes_na_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if query.message.chat.type != "private":
+        return
+
+    user_id = query.from_user.id
+    flow = pending.get(user_id)
+    if not flow or flow.get("mode") != "add_store" or flow.get("step") != "notes":
+        return
+
+    data = flow.setdefault("data", {})
+    data["notes"] = "N/A"
+    flow["step"] = "destination"
+
+    await _reply_text_tracked(
+        query.message,
+        user_id,
+        "🚀 Ready to Post? Please provide me the URL of the group/section. | Example: <code>https://t.me/c/3857658928/148</code>",
+        parse_mode="HTML",
+    )
+
+
+async def store_preview_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if query.message.chat.type != "private":
+        return
+
+    user_id = query.from_user.id
+    flow = pending.get(user_id)
+    if not flow or flow.get("mode") != "add_store" or flow.get("step") != "confirm":
+        return
+
+    if query.data == "store_preview_cancel":
+        pending.pop(user_id, None)
+        await _clear_tracked_dm_messages(context, user_id)
+        return
+
+    if query.data == "store_preview_confirm":
+        if query.message:
+            _track_dm_message(user_id, query.message.message_id)
+        await _finalize_add_store(update, context)
 
 
 # ─── Revocation job ─────────────────────────────────────────────────────────
@@ -1873,8 +2058,20 @@ def main() -> None:
     application.add_handler(
         CallbackQueryHandler(
             store_timeframe_callback,
-            pattern=r"^store_timeframe_(TF_1_4_DAYS|TF_7_DAYS|TF_1_2_WEEKS|TF_2_3_WEEKS|TF_3_4_WEEKS|TF_4_WEEKS)$",
+            pattern=r"^store_timeframe_(TF_INSTANT|TF_1_5_DAYS|TF_7_DAYS|TF_1_2_WEEKS|TF_2_3_WEEKS|TF_3_4_WEEKS|TF_4_WEEKS)$",
         )
+    )
+    application.add_handler(
+        CallbackQueryHandler(
+            store_method_callback,
+            pattern=r"^store_method_(M_FTID_V3|M_WEIGHTED_FTID|M_LIT|M_DNA|M_EB|M_FTID_ROS|M_FTID_ROD|M_FTIDNA|M_DMG_RTS|M_RTS|M_UTD|M_PTDNA|M_PEB)$",
+        )
+    )
+    application.add_handler(
+        CallbackQueryHandler(store_notes_na_callback, pattern=r"^store_notes_na$")
+    )
+    application.add_handler(
+        CallbackQueryHandler(store_preview_callback, pattern=r"^store_preview_(confirm|cancel)$")
     )
     application.add_handler(
         CallbackQueryHandler(unmute_callback, pattern=r"^unmute_\d+$")
