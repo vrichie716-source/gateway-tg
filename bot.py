@@ -239,31 +239,49 @@ def _store_country_keyboard() -> InlineKeyboardMarkup:
 
 def _store_timeframe_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Instant", callback_data="store_timeframe_TF_INSTANT")],
-        [InlineKeyboardButton("1-5 Days", callback_data="store_timeframe_TF_1_5_DAYS")],
-        [InlineKeyboardButton("7 Days", callback_data="store_timeframe_TF_7_DAYS")],
-        [InlineKeyboardButton("1-2 Weeks", callback_data="store_timeframe_TF_1_2_WEEKS")],
-        [InlineKeyboardButton("2-3 Weeks", callback_data="store_timeframe_TF_2_3_WEEKS")],
-        [InlineKeyboardButton("3-4 Weeks", callback_data="store_timeframe_TF_3_4_WEEKS")],
-        [InlineKeyboardButton("4 Weeks", callback_data="store_timeframe_TF_4_WEEKS")],
+        [
+            InlineKeyboardButton("Instant", callback_data="store_timeframe_TF_INSTANT"),
+            InlineKeyboardButton("1-5 Days", callback_data="store_timeframe_TF_1_5_DAYS"),
+            InlineKeyboardButton("7 Days", callback_data="store_timeframe_TF_7_DAYS"),
+        ],
+        [
+            InlineKeyboardButton("1-2 Weeks", callback_data="store_timeframe_TF_1_2_WEEKS"),
+            InlineKeyboardButton("2-3 Weeks", callback_data="store_timeframe_TF_2_3_WEEKS"),
+            InlineKeyboardButton("3-4 Weeks", callback_data="store_timeframe_TF_3_4_WEEKS"),
+        ],
+        [
+            InlineKeyboardButton("4 Weeks", callback_data="store_timeframe_TF_4_WEEKS"),
+            InlineKeyboardButton("✏️ Custom...", callback_data="store_timeframe_CUSTOM"),
+        ],
     ])
 
 
 def _store_method_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("FTIDv3", callback_data="store_method_M_FTID_V3")],
-        [InlineKeyboardButton("Weighted FTID", callback_data="store_method_M_WEIGHTED_FTID")],
-        [InlineKeyboardButton("LIT", callback_data="store_method_M_LIT")],
-        [InlineKeyboardButton("DNA", callback_data="store_method_M_DNA")],
-        [InlineKeyboardButton("EB", callback_data="store_method_M_EB")],
-        [InlineKeyboardButton("FTID ROS", callback_data="store_method_M_FTID_ROS")],
-        [InlineKeyboardButton("FTID ROD", callback_data="store_method_M_FTID_ROD")],
-        [InlineKeyboardButton("FTIDNA", callback_data="store_method_M_FTIDNA")],
-        [InlineKeyboardButton("DMG RTS", callback_data="store_method_M_DMG_RTS")],
-        [InlineKeyboardButton("RTS", callback_data="store_method_M_RTS")],
-        [InlineKeyboardButton("UTD", callback_data="store_method_M_UTD")],
-        [InlineKeyboardButton("PTDNA", callback_data="store_method_M_PTDNA")],
-        [InlineKeyboardButton("PEB", callback_data="store_method_M_PEB")],
+        [
+            InlineKeyboardButton("FTIDv3", callback_data="store_method_M_FTID_V3"),
+            InlineKeyboardButton("Weighted FTID", callback_data="store_method_M_WEIGHTED_FTID"),
+            InlineKeyboardButton("LIT", callback_data="store_method_M_LIT"),
+        ],
+        [
+            InlineKeyboardButton("DNA", callback_data="store_method_M_DNA"),
+            InlineKeyboardButton("EB", callback_data="store_method_M_EB"),
+            InlineKeyboardButton("FTID ROS", callback_data="store_method_M_FTID_ROS"),
+        ],
+        [
+            InlineKeyboardButton("FTID ROD", callback_data="store_method_M_FTID_ROD"),
+            InlineKeyboardButton("FTIDNA", callback_data="store_method_M_FTIDNA"),
+            InlineKeyboardButton("DMG RTS", callback_data="store_method_M_DMG_RTS"),
+        ],
+        [
+            InlineKeyboardButton("RTS", callback_data="store_method_M_RTS"),
+            InlineKeyboardButton("UTD", callback_data="store_method_M_UTD"),
+            InlineKeyboardButton("PTDNA", callback_data="store_method_M_PTDNA"),
+        ],
+        [
+            InlineKeyboardButton("PEB", callback_data="store_method_M_PEB"),
+            InlineKeyboardButton("✏️ Custom...", callback_data="store_method_CUSTOM"),
+        ],
     ])
 
 
@@ -583,7 +601,20 @@ async def _start_custom_message_flow(update: Update) -> None:
         "step": "compose",
         "data": {},
     }
-    await _reply_text_tracked(update.message, user_id, "👋 Sure! what message would you like me to send?")
+    await _reply_text_tracked(
+        update.message,
+        user_id,
+        "👋 Sure! What message would you like me to send?\n\n"
+        "<b>Formatting options:</b>\n"
+        "<code>&lt;bold&gt;text&lt;bold&gt;</code> → <b>bold</b>\n"
+        "<code>&lt;italic&gt;text&lt;italic&gt;</code> → <i>italic</i>\n"
+        "<code>&lt;underlined&gt;text&lt;underlined&gt;</code> → <u>underlined</u>\n"
+        "<code>&lt;strike&gt;text&lt;strike&gt;</code> → <s>strikethrough</s>\n"
+        "<code>&lt;spoiler&gt;text&lt;spoiler&gt;</code> → spoiler\n"
+        "<code>&lt;monospace&gt;text&lt;monospace&gt;</code> → <code>monospace</code>\n"
+        "<code>&lt;url&gt;Label(https://...)</code> → hyperlink",
+        parse_mode="HTML",
+    )
 
 
 def _track_dm_message(user_id: int, message_id: int) -> None:
@@ -1506,21 +1537,50 @@ async def _handle_add_store_text(update: Update, context: ContextTypes.DEFAULT_T
         return True
 
     if step == "timeframe":
-        await _reply_text_tracked(
-            update.message,
-            user_id,
-            "⏰ Choose the turnaround timeframe for this specific store:",
-            reply_markup=_store_timeframe_keyboard(),
-        )
-        return True
-
-    if step == "method":
+        # User typed a custom timeframe directly instead of tapping a button
+        data["timeframe"] = text
+        flow["step"] = "method"
         await _reply_text_tracked(
             update.message,
             user_id,
             "⚙️ <b>Select the Method.</b>",
             parse_mode="HTML",
             reply_markup=_store_method_keyboard(),
+        )
+        return True
+
+    if step == "timeframe_custom":
+        data["timeframe"] = text
+        flow["step"] = "method"
+        await _reply_text_tracked(
+            update.message,
+            user_id,
+            "⚙️ <b>Select the Method.</b>",
+            parse_mode="HTML",
+            reply_markup=_store_method_keyboard(),
+        )
+        return True
+
+    if step == "method":
+        # User typed a custom method directly instead of tapping a button
+        data["method"] = text
+        flow["step"] = "notes"
+        await _reply_text_tracked(
+            update.message,
+            user_id,
+            "📝 Any specific notes?",
+            reply_markup=_store_notes_keyboard(),
+        )
+        return True
+
+    if step == "method_custom":
+        data["method"] = text
+        flow["step"] = "notes"
+        await _reply_text_tracked(
+            update.message,
+            user_id,
+            "📝 Any specific notes?",
+            reply_markup=_store_notes_keyboard(),
         )
         return True
 
@@ -1731,6 +1791,16 @@ async def store_timeframe_callback(update: Update, context: ContextTypes.DEFAULT
         return
 
     timeframe_key = query.data.replace("store_timeframe_", "", 1)
+
+    if timeframe_key == "CUSTOM":
+        flow["step"] = "timeframe_custom"
+        await _reply_text_tracked(
+            query.message,
+            user_id,
+            "✏️ Type your custom timeframe:",
+        )
+        return
+
     timeframe_label = STORE_TIMEFRAMES.get(timeframe_key)
     if not timeframe_label:
         return
@@ -1761,6 +1831,16 @@ async def store_method_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     method_key = query.data.replace("store_method_", "", 1)
+
+    if method_key == "CUSTOM":
+        flow["step"] = "method_custom"
+        await _reply_text_tracked(
+            query.message,
+            user_id,
+            "✏️ Type your custom method:",
+        )
+        return
+
     method_label = STORE_METHODS.get(method_key)
     if not method_label:
         return
@@ -2625,13 +2705,13 @@ def main() -> None:
     application.add_handler(
         CallbackQueryHandler(
             store_timeframe_callback,
-            pattern=r"^store_timeframe_(TF_INSTANT|TF_1_5_DAYS|TF_7_DAYS|TF_1_2_WEEKS|TF_2_3_WEEKS|TF_3_4_WEEKS|TF_4_WEEKS)$",
+            pattern=r"^store_timeframe_(TF_INSTANT|TF_1_5_DAYS|TF_7_DAYS|TF_1_2_WEEKS|TF_2_3_WEEKS|TF_3_4_WEEKS|TF_4_WEEKS|CUSTOM)$",
         )
     )
     application.add_handler(
         CallbackQueryHandler(
             store_method_callback,
-            pattern=r"^store_method_(M_FTID_V3|M_WEIGHTED_FTID|M_LIT|M_DNA|M_EB|M_FTID_ROS|M_FTID_ROD|M_FTIDNA|M_DMG_RTS|M_RTS|M_UTD|M_PTDNA|M_PEB)$",
+            pattern=r"^store_method_(M_FTID_V3|M_WEIGHTED_FTID|M_LIT|M_DNA|M_EB|M_FTID_ROS|M_FTID_ROD|M_FTIDNA|M_DMG_RTS|M_RTS|M_UTD|M_PTDNA|M_PEB|CUSTOM)$",
         )
     )
     application.add_handler(
