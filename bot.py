@@ -15,6 +15,11 @@ import time
 from html import escape
 from datetime import datetime, timedelta, timezone
 
+try:
+    import httpx as _httpx
+except ImportError:
+    _httpx = None
+
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest, Conflict, Forbidden
@@ -191,6 +196,11 @@ STORE_METHODS: dict[str, str] = {
 }
 
 STORE_WATERMARK = "𝐎𝐋𝐈𝐌𝐏𝐎 Watermarked."
+
+VOUCHES_TOPIC_ID: int = int(os.environ.get("VOUCHES_TOPIC_ID", "0"))
+
+# Registry for vouch report callbacks: {vouch_id -> vouch_data}
+_vouch_registry: dict[str, dict] = {}
 
 # Track users who completed the math captcha: {user_id: timestamp}
 verified_users: dict[int, float] = {}
@@ -592,6 +602,23 @@ async def _custom_dynamic_message_job(context: ContextTypes.DEFAULT_TYPE) -> Non
         context.job.schedule_removal()
 
 
+async def _get_bitcoin_price() -> str:
+    """Fetch current BTC/USD price from CoinGecko."""
+    try:
+        if _httpx is None:
+            return "N/A"
+        async with _httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(
+                "https://api.coingecko.com/api/v3/simple/price",
+                params={"ids": "bitcoin", "vs_currencies": "usd"},
+            )
+            data = r.json()
+            price = int(data["bitcoin"]["usd"])
+            return f"${price:,}"
+    except Exception:
+        return "N/A"
+
+
 async def _start_custom_message_flow(update: Update) -> None:
     user_id = update.effective_user.id
     _dm_messages[user_id] = []
@@ -612,7 +639,8 @@ async def _start_custom_message_flow(update: Update) -> None:
         "<code>&lt;strike&gt;text&lt;strike&gt;</code> → <s>strikethrough</s>\n"
         "<code>&lt;spoiler&gt;text&lt;spoiler&gt;</code> → spoiler\n"
         "<code>&lt;monospace&gt;text&lt;monospace&gt;</code> → <code>monospace</code>\n"
-        "<code>&lt;url&gt;Label(https://...)</code> → hyperlink",
+        "<code>&lt;url&gt;Label(https://...)</code> → hyperlink\n"
+        "<code>&lt;button&gt;&lt;url&gt;Label(https://)&lt;url&gt;&lt;button&gt;</code> → inline button",
         parse_mode="HTML",
     )
 
@@ -2001,7 +2029,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             InlineKeyboardButton("🇲🇽 Español", callback_data="lang_es"),
         ]
     ])
+    btc_price = await _get_bitcoin_price()
     msg = await update.message.reply_text(
+        f"Hey! 👋 Bitcoin's Current Price: {btc_price}\n"
         "🌐 Choose your language / Elige tu idioma:",
         reply_markup=keyboard,
     )
@@ -2528,6 +2558,112 @@ async def on_member_joined(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await restrict_and_welcome(chat, user, context, lang)
 
 
+# ─── Vouch command ──────────────────────────────────────────────────────────
+
+async def vouch_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Admin-only /vouch command in the Main group — posts replied message to Vouches topic."""
+    msg = update.message
+    chat = update.effective_chat
+    user = update.effective_user
+
+    if not _is_manual_approval_chat(chat.id):
+        return
+
+    if not msg.reply_to_message:
+        await msg.reply_text("⚠️ Reply to a message to vouch for it.", quote=True)
+        return
+
+    if not VOUCHES_TOPIC_ID:
+        await msg.reply_text("⚠️ VOUCHES_TOPIC_ID is not configured.", quote=True)
+        return
+
+    replied = msg.reply_to_message
+    voucher = f"@{user.username}" if user.username else user.full_name
+    original_text = replied.text or replied.caption or ""
+    quoted_block = f"<blockquote><i>{escape(original_text)}</i></blockquote>" if original_text else ""
+
+    caption = (
+        f"☑️ Vouch by: {escape(voucher)} ☑️\n"
+        f"Message: {quoted_block}"
+    ).strip()
+
+    vouch_id = os.urandom(4).hex()
+    report_markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⛔ Report Vouch", callback_data=f"vouch_report_{vouch_id}")]
+    ])
+
+    try:
+        if replied.photo:
+            sent = await context.bot.send_photo(
+                chat_id=chat.id,
+                photo=replied.photo[-1].file_id,
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=report_markup,
+                message_thread_id=VOUCHES_TOPIC_ID,
+            )
+        else:
+            sent = await context.bot.send_message(
+                chat_id=chat.id,
+                text=caption,
+                parse_mode="HTML",
+                reply_markup=report_markup,
+                message_thread_id=VOUCHES_TOPIC_ID,
+            )
+    except (BadRequest, Forbidden) as exc:
+        await msg.reply_text(f"❌ Could not post vouch: {exc}")
+        return
+
+    internal_id = str(chat.id).replace("-100", "")
+    vouch_link = f"https://t.me/c/{internal_id}/{VOUCHES_TOPIC_ID}/{sent.message_id}"
+
+    _vouch_registry[vouch_id] = {
+        "voucher": voucher,
+        "chat_id": chat.id,
+        "message_id": sent.message_id,
+        "vouch_link": vouch_link,
+    }
+
+    try:
+        await msg.delete()
+    except (BadRequest, Forbidden):
+        pass
+
+
+async def vouch_report_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle ⛔ Report Vouch button — DMs @flauta with report details."""
+    query = update.callback_query
+    await query.answer("⚠️ Report sent to the admin.", show_alert=True)
+
+    vouch_id = query.data.replace("vouch_report_", "", 1)
+    vouch = _vouch_registry.get(vouch_id)
+
+    reporter = query.from_user
+    reporter_display = f"@{reporter.username}" if reporter.username else reporter.full_name
+
+    report_text = (
+        f"🚨 <b>Vouch Report</b>\n\n"
+        f"{escape(reporter_display)} reported the following vouch"
+    )
+    if vouch:
+        report_text += f" by {escape(vouch.get('voucher', 'Unknown'))}"
+
+    buttons = []
+    if vouch and vouch.get("vouch_link"):
+        buttons = [[InlineKeyboardButton("🔗 View Vouch", url=vouch["vouch_link"])]]
+
+    try:
+        flauta = await context.bot.get_chat("@flauta")
+        await context.bot.send_message(
+            chat_id=flauta.id,
+            text=report_text,
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(buttons) if buttons else None,
+        )
+    except (BadRequest, Forbidden):
+        logger.warning("Could not send vouch report DM to @flauta")
+
+
 # ─── Diagnostic ──────────────────────────────────────────────────────────────
 
 @admin_only
@@ -2580,6 +2716,10 @@ def main() -> None:
 
     # ── Gateway (DM) ─────────────────────────────────────────────────────
     application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("vouch", vouch_command))
+    application.add_handler(
+        CallbackQueryHandler(vouch_report_callback, pattern=r"^vouch_report_[0-9a-f]{8}$")
+    )
     application.add_handler(
         MessageHandler(
             filters.Regex(r"(?i)add\s*[-_–—‑]?\s*store") & filters.ChatType.PRIVATE,
