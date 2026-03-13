@@ -15,10 +15,6 @@ import time
 from html import escape
 from datetime import datetime, timedelta, timezone
 
-import asyncio as _asyncio
-import json as _json
-import urllib.request as _urllib_request
-
 from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import BadRequest, Conflict, Forbidden
@@ -196,22 +192,6 @@ STORE_METHODS: dict[str, str] = {
 
 STORE_WATERMARK = "𝐎𝐋𝐈𝐌𝐏𝐎 Watermarked."
 
-def _parse_vouches_topic_id() -> int:
-    """Accept a full t.me URL (https://t.me/c/<chat>/<thread>) or a plain integer."""
-    raw = os.environ.get("VOUCHES_TOPIC_ID", "").strip()
-    m = re.match(r"https?://t\.me/c/\d+/(\d+)", raw)
-    if m:
-        return int(m.group(1))
-    try:
-        return int(raw)
-    except ValueError:
-        return 0
-
-VOUCHES_TOPIC_ID: int = _parse_vouches_topic_id()
-
-# Registry for vouch report callbacks: {vouch_id -> vouch_data}
-_vouch_registry: dict[str, dict] = {}
-
 # Track users who completed the math captcha: {user_id: timestamp}
 verified_users: dict[int, float] = {}
 
@@ -259,49 +239,31 @@ def _store_country_keyboard() -> InlineKeyboardMarkup:
 
 def _store_timeframe_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("Instant", callback_data="store_timeframe_TF_INSTANT"),
-            InlineKeyboardButton("1-5 Days", callback_data="store_timeframe_TF_1_5_DAYS"),
-            InlineKeyboardButton("7 Days", callback_data="store_timeframe_TF_7_DAYS"),
-        ],
-        [
-            InlineKeyboardButton("1-2 Weeks", callback_data="store_timeframe_TF_1_2_WEEKS"),
-            InlineKeyboardButton("2-3 Weeks", callback_data="store_timeframe_TF_2_3_WEEKS"),
-            InlineKeyboardButton("3-4 Weeks", callback_data="store_timeframe_TF_3_4_WEEKS"),
-        ],
-        [
-            InlineKeyboardButton("4 Weeks", callback_data="store_timeframe_TF_4_WEEKS"),
-            InlineKeyboardButton("✏️ Custom...", callback_data="store_timeframe_CUSTOM"),
-        ],
+        [InlineKeyboardButton("Instant", callback_data="store_timeframe_TF_INSTANT")],
+        [InlineKeyboardButton("1-5 Days", callback_data="store_timeframe_TF_1_5_DAYS")],
+        [InlineKeyboardButton("7 Days", callback_data="store_timeframe_TF_7_DAYS")],
+        [InlineKeyboardButton("1-2 Weeks", callback_data="store_timeframe_TF_1_2_WEEKS")],
+        [InlineKeyboardButton("2-3 Weeks", callback_data="store_timeframe_TF_2_3_WEEKS")],
+        [InlineKeyboardButton("3-4 Weeks", callback_data="store_timeframe_TF_3_4_WEEKS")],
+        [InlineKeyboardButton("4 Weeks", callback_data="store_timeframe_TF_4_WEEKS")],
     ])
 
 
 def _store_method_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("FTIDv3", callback_data="store_method_M_FTID_V3"),
-            InlineKeyboardButton("Weighted FTID", callback_data="store_method_M_WEIGHTED_FTID"),
-            InlineKeyboardButton("LIT", callback_data="store_method_M_LIT"),
-        ],
-        [
-            InlineKeyboardButton("DNA", callback_data="store_method_M_DNA"),
-            InlineKeyboardButton("EB", callback_data="store_method_M_EB"),
-            InlineKeyboardButton("FTID ROS", callback_data="store_method_M_FTID_ROS"),
-        ],
-        [
-            InlineKeyboardButton("FTID ROD", callback_data="store_method_M_FTID_ROD"),
-            InlineKeyboardButton("FTIDNA", callback_data="store_method_M_FTIDNA"),
-            InlineKeyboardButton("DMG RTS", callback_data="store_method_M_DMG_RTS"),
-        ],
-        [
-            InlineKeyboardButton("RTS", callback_data="store_method_M_RTS"),
-            InlineKeyboardButton("UTD", callback_data="store_method_M_UTD"),
-            InlineKeyboardButton("PTDNA", callback_data="store_method_M_PTDNA"),
-        ],
-        [
-            InlineKeyboardButton("PEB", callback_data="store_method_M_PEB"),
-            InlineKeyboardButton("✏️ Custom...", callback_data="store_method_CUSTOM"),
-        ],
+        [InlineKeyboardButton("FTIDv3", callback_data="store_method_M_FTID_V3")],
+        [InlineKeyboardButton("Weighted FTID", callback_data="store_method_M_WEIGHTED_FTID")],
+        [InlineKeyboardButton("LIT", callback_data="store_method_M_LIT")],
+        [InlineKeyboardButton("DNA", callback_data="store_method_M_DNA")],
+        [InlineKeyboardButton("EB", callback_data="store_method_M_EB")],
+        [InlineKeyboardButton("FTID ROS", callback_data="store_method_M_FTID_ROS")],
+        [InlineKeyboardButton("FTID ROD", callback_data="store_method_M_FTID_ROD")],
+        [InlineKeyboardButton("FTIDNA", callback_data="store_method_M_FTIDNA")],
+        [InlineKeyboardButton("DMG RTS", callback_data="store_method_M_DMG_RTS")],
+        [InlineKeyboardButton("RTS", callback_data="store_method_M_RTS")],
+        [InlineKeyboardButton("UTD", callback_data="store_method_M_UTD")],
+        [InlineKeyboardButton("PTDNA", callback_data="store_method_M_PTDNA")],
+        [InlineKeyboardButton("PEB", callback_data="store_method_M_PEB")],
     ])
 
 
@@ -612,26 +574,6 @@ async def _custom_dynamic_message_job(context: ContextTypes.DEFAULT_TYPE) -> Non
         context.job.schedule_removal()
 
 
-async def _get_bitcoin_price() -> str:
-    """Fetch current BTC/USD price from Coinbase (no API key required)."""
-    def _fetch() -> str:
-        req = _urllib_request.Request(
-            "https://api.coinbase.com/v2/prices/BTC-USD/spot",
-            headers={"User-Agent": "Mozilla/5.0"},
-        )
-        with _urllib_request.urlopen(req, timeout=6) as resp:
-            data = _json.loads(resp.read())
-            price = float(data["data"]["amount"])
-            return f"${price:,.0f}"
-    try:
-        return await _asyncio.wait_for(
-            _asyncio.get_event_loop().run_in_executor(None, _fetch),
-            timeout=7,
-        )
-    except Exception:
-        return "N/A"
-
-
 async def _start_custom_message_flow(update: Update) -> None:
     user_id = update.effective_user.id
     _dm_messages[user_id] = []
@@ -641,21 +583,7 @@ async def _start_custom_message_flow(update: Update) -> None:
         "step": "compose",
         "data": {},
     }
-    await _reply_text_tracked(
-        update.message,
-        user_id,
-        "👋 Sure! What message would you like me to send?\n\n"
-        "<b>Formatting options:</b>\n"
-        "<code>&lt;bold&gt;text&lt;bold&gt;</code> → <b>bold</b>\n"
-        "<code>&lt;italic&gt;text&lt;italic&gt;</code> → <i>italic</i>\n"
-        "<code>&lt;underlined&gt;text&lt;underlined&gt;</code> → <u>underlined</u>\n"
-        "<code>&lt;strike&gt;text&lt;strike&gt;</code> → <s>strikethrough</s>\n"
-        "<code>&lt;spoiler&gt;text&lt;spoiler&gt;</code> → spoiler\n"
-        "<code>&lt;monospace&gt;text&lt;monospace&gt;</code> → <code>monospace</code>\n"
-        "<code>&lt;url&gt;Label(https://...)</code> → hyperlink\n"
-        "<code>&lt;button&gt;&lt;url&gt;Label(https://)&lt;url&gt;&lt;button&gt;</code> → inline button",
-        parse_mode="HTML",
-    )
+    await _reply_text_tracked(update.message, user_id, "👋 Sure! what message would you like me to send?")
 
 
 def _track_dm_message(user_id: int, message_id: int) -> None:
@@ -1578,50 +1506,21 @@ async def _handle_add_store_text(update: Update, context: ContextTypes.DEFAULT_T
         return True
 
     if step == "timeframe":
-        # User typed a custom timeframe directly instead of tapping a button
-        data["timeframe"] = text
-        flow["step"] = "method"
         await _reply_text_tracked(
             update.message,
             user_id,
-            "⚙️ <b>Select the Method.</b>",
-            parse_mode="HTML",
-            reply_markup=_store_method_keyboard(),
-        )
-        return True
-
-    if step == "timeframe_custom":
-        data["timeframe"] = text
-        flow["step"] = "method"
-        await _reply_text_tracked(
-            update.message,
-            user_id,
-            "⚙️ <b>Select the Method.</b>",
-            parse_mode="HTML",
-            reply_markup=_store_method_keyboard(),
+            "⏰ Choose the turnaround timeframe for this specific store:",
+            reply_markup=_store_timeframe_keyboard(),
         )
         return True
 
     if step == "method":
-        # User typed a custom method directly instead of tapping a button
-        data["method"] = text
-        flow["step"] = "notes"
         await _reply_text_tracked(
             update.message,
             user_id,
-            "📝 Any specific notes?",
-            reply_markup=_store_notes_keyboard(),
-        )
-        return True
-
-    if step == "method_custom":
-        data["method"] = text
-        flow["step"] = "notes"
-        await _reply_text_tracked(
-            update.message,
-            user_id,
-            "📝 Any specific notes?",
-            reply_markup=_store_notes_keyboard(),
+            "⚙️ <b>Select the Method.</b>",
+            parse_mode="HTML",
+            reply_markup=_store_method_keyboard(),
         )
         return True
 
@@ -1832,16 +1731,6 @@ async def store_timeframe_callback(update: Update, context: ContextTypes.DEFAULT
         return
 
     timeframe_key = query.data.replace("store_timeframe_", "", 1)
-
-    if timeframe_key == "CUSTOM":
-        flow["step"] = "timeframe_custom"
-        await _reply_text_tracked(
-            query.message,
-            user_id,
-            "✏️ Type your custom timeframe:",
-        )
-        return
-
     timeframe_label = STORE_TIMEFRAMES.get(timeframe_key)
     if not timeframe_label:
         return
@@ -1872,16 +1761,6 @@ async def store_method_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     method_key = query.data.replace("store_method_", "", 1)
-
-    if method_key == "CUSTOM":
-        flow["step"] = "method_custom"
-        await _reply_text_tracked(
-            query.message,
-            user_id,
-            "✏️ Type your custom method:",
-        )
-        return
-
     method_label = STORE_METHODS.get(method_key)
     if not method_label:
         return
@@ -2042,9 +1921,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             InlineKeyboardButton("🇲🇽 Español", callback_data="lang_es"),
         ]
     ])
-    btc_price = await _get_bitcoin_price()
     msg = await update.message.reply_text(
-        f"Hey! 👋 Bitcoin's Current Price: {btc_price}\n"
         "🌐 Choose your language / Elige tu idioma:",
         reply_markup=keyboard,
     )
@@ -2571,112 +2448,6 @@ async def on_member_joined(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await restrict_and_welcome(chat, user, context, lang)
 
 
-# ─── Vouch command ──────────────────────────────────────────────────────────
-
-async def vouch_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Admin-only /vouch command in the Main group — posts replied message to Vouches topic."""
-    msg = update.message
-    chat = update.effective_chat
-    user = update.effective_user
-
-    if not _is_manual_approval_chat(chat.id):
-        return
-
-    if not msg.reply_to_message:
-        await msg.reply_text("⚠️ Reply to a message to vouch for it.", quote=True)
-        return
-
-    if not VOUCHES_TOPIC_ID:
-        await msg.reply_text("⚠️ VOUCHES_TOPIC_ID is not configured.", quote=True)
-        return
-
-    replied = msg.reply_to_message
-    voucher = f"@{user.username}" if user.username else user.full_name
-    original_text = replied.text or replied.caption or ""
-    quoted_block = f"<blockquote><i>{escape(original_text)}</i></blockquote>" if original_text else ""
-
-    caption = (
-        f"☑️ Vouch by: {escape(voucher)} ☑️\n"
-        f"Message: {quoted_block}"
-    ).strip()
-
-    vouch_id = os.urandom(4).hex()
-    report_markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⛔ Report Vouch", callback_data=f"vouch_report_{vouch_id}")]
-    ])
-
-    try:
-        if replied.photo:
-            sent = await context.bot.send_photo(
-                chat_id=chat.id,
-                photo=replied.photo[-1].file_id,
-                caption=caption,
-                parse_mode="HTML",
-                reply_markup=report_markup,
-                message_thread_id=VOUCHES_TOPIC_ID,
-            )
-        else:
-            sent = await context.bot.send_message(
-                chat_id=chat.id,
-                text=caption,
-                parse_mode="HTML",
-                reply_markup=report_markup,
-                message_thread_id=VOUCHES_TOPIC_ID,
-            )
-    except (BadRequest, Forbidden) as exc:
-        await msg.reply_text(f"❌ Could not post vouch: {exc}")
-        return
-
-    internal_id = str(chat.id).replace("-100", "")
-    vouch_link = f"https://t.me/c/{internal_id}/{VOUCHES_TOPIC_ID}/{sent.message_id}"
-
-    _vouch_registry[vouch_id] = {
-        "voucher": voucher,
-        "chat_id": chat.id,
-        "message_id": sent.message_id,
-        "vouch_link": vouch_link,
-    }
-
-    try:
-        await msg.delete()
-    except (BadRequest, Forbidden):
-        pass
-
-
-async def vouch_report_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle ⛔ Report Vouch button — DMs @flauta with report details."""
-    query = update.callback_query
-    await query.answer("⚠️ Report sent to the admin.", show_alert=True)
-
-    vouch_id = query.data.replace("vouch_report_", "", 1)
-    vouch = _vouch_registry.get(vouch_id)
-
-    reporter = query.from_user
-    reporter_display = f"@{reporter.username}" if reporter.username else reporter.full_name
-
-    report_text = (
-        f"🚨 <b>Vouch Report</b>\n\n"
-        f"{escape(reporter_display)} reported the following vouch"
-    )
-    if vouch:
-        report_text += f" by {escape(vouch.get('voucher', 'Unknown'))}"
-
-    buttons = []
-    if vouch and vouch.get("vouch_link"):
-        buttons = [[InlineKeyboardButton("🔗 View Vouch", url=vouch["vouch_link"])]]
-
-    try:
-        flauta = await context.bot.get_chat("@flauta")
-        await context.bot.send_message(
-            chat_id=flauta.id,
-            text=report_text,
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(buttons) if buttons else None,
-        )
-    except (BadRequest, Forbidden):
-        logger.warning("Could not send vouch report DM to @flauta")
-
-
 # ─── Diagnostic ──────────────────────────────────────────────────────────────
 
 @admin_only
@@ -2729,10 +2500,6 @@ def main() -> None:
 
     # ── Gateway (DM) ─────────────────────────────────────────────────────
     application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("vouch", vouch_command))
-    application.add_handler(
-        CallbackQueryHandler(vouch_report_callback, pattern=r"^vouch_report_[0-9a-f]{8}$")
-    )
     application.add_handler(
         MessageHandler(
             filters.Regex(r"(?i)add\s*[-_–—‑]?\s*store") & filters.ChatType.PRIVATE,
@@ -2858,13 +2625,13 @@ def main() -> None:
     application.add_handler(
         CallbackQueryHandler(
             store_timeframe_callback,
-            pattern=r"^store_timeframe_(TF_INSTANT|TF_1_5_DAYS|TF_7_DAYS|TF_1_2_WEEKS|TF_2_3_WEEKS|TF_3_4_WEEKS|TF_4_WEEKS|CUSTOM)$",
+            pattern=r"^store_timeframe_(TF_INSTANT|TF_1_5_DAYS|TF_7_DAYS|TF_1_2_WEEKS|TF_2_3_WEEKS|TF_3_4_WEEKS|TF_4_WEEKS)$",
         )
     )
     application.add_handler(
         CallbackQueryHandler(
             store_method_callback,
-            pattern=r"^store_method_(M_FTID_V3|M_WEIGHTED_FTID|M_LIT|M_DNA|M_EB|M_FTID_ROS|M_FTID_ROD|M_FTIDNA|M_DMG_RTS|M_RTS|M_UTD|M_PTDNA|M_PEB|CUSTOM)$",
+            pattern=r"^store_method_(M_FTID_V3|M_WEIGHTED_FTID|M_LIT|M_DNA|M_EB|M_FTID_ROS|M_FTID_ROD|M_FTIDNA|M_DMG_RTS|M_RTS|M_UTD|M_PTDNA|M_PEB)$",
         )
     )
     application.add_handler(
@@ -2964,13 +2731,13 @@ def main() -> None:
 
     logger.info("Bot started — waiting for messages...")
 
-    # Detect Render environment for webhook mode
-    RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
-    PORT = int(os.environ.get("PORT", "10000"))
+    # Detect Railway environment for webhook mode
+    RAILWAY_DOMAIN = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+    PORT = int(os.environ.get("PORT", "8080"))
 
-    if RENDER_URL:
-        # Webhook mode for Render free tier
-        webhook_url = f"{RENDER_URL}/webhook"
+    if RAILWAY_DOMAIN:
+        # Webhook mode for Railway (only if a public domain is assigned)
+        webhook_url = f"https://{RAILWAY_DOMAIN}/webhook"
         logger.info(f"Running in WEBHOOK mode on port {PORT} → {webhook_url}")
         try:
             application.run_webhook(
@@ -2988,7 +2755,7 @@ def main() -> None:
         except Conflict:
             logger.critical(
                 "Telegram Conflict detected at startup. Another instance is already using this BOT_TOKEN. "
-                "Stop duplicate instances (Render/local/other hosts) and restart only one bot process."
+                "Stop duplicate instances (Railway/local/other hosts) and restart only one bot process."
             )
             raise SystemExit(1)
     else:
