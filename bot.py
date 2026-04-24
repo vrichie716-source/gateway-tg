@@ -225,60 +225,86 @@ def generate_math_problem() -> tuple[str, int]:
 def _store_country_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("USA", callback_data="store_country_US"),
-            InlineKeyboardButton("CA", callback_data="store_country_CA"),
-            InlineKeyboardButton("UK", callback_data="store_country_UK"),
+            InlineKeyboardButton("🇺🇸 USA", callback_data="store_country_US", api_kwargs={"style": "primary"}),
+            InlineKeyboardButton("🇨🇦 CA", callback_data="store_country_CA", api_kwargs={"style": "danger"}),
+            InlineKeyboardButton("🇬🇧 UK", callback_data="store_country_UK", api_kwargs={"style": "danger"}),
         ],
         [
-            InlineKeyboardButton("EU", callback_data="store_country_EU"),
-            InlineKeyboardButton("AUS", callback_data="store_country_AUS"),
-            InlineKeyboardButton("MX", callback_data="store_country_MX"),
+            InlineKeyboardButton("🇪🇺 EU", callback_data="store_country_EU", api_kwargs={"style": "primary"}),
+            InlineKeyboardButton("🇦🇺 AUS", callback_data="store_country_AUS", api_kwargs={"style": "success"}),
+            InlineKeyboardButton("🇲🇽 MX", callback_data="store_country_MX", api_kwargs={"style": "success"}),
         ],
     ])
 
 
 def _store_timeframe_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Instant", callback_data="store_timeframe_TF_INSTANT")],
-        [InlineKeyboardButton("1-5 Days", callback_data="store_timeframe_TF_1_5_DAYS")],
-        [InlineKeyboardButton("7 Days", callback_data="store_timeframe_TF_7_DAYS")],
-        [InlineKeyboardButton("1-2 Weeks", callback_data="store_timeframe_TF_1_2_WEEKS")],
-        [InlineKeyboardButton("2-3 Weeks", callback_data="store_timeframe_TF_2_3_WEEKS")],
-        [InlineKeyboardButton("3-4 Weeks", callback_data="store_timeframe_TF_3_4_WEEKS")],
-        [InlineKeyboardButton("4 Weeks", callback_data="store_timeframe_TF_4_WEEKS")],
+        [InlineKeyboardButton("Instant", callback_data="store_timeframe_TF_INSTANT", api_kwargs={"style": "success"})],
+        [InlineKeyboardButton("1-5 Days", callback_data="store_timeframe_TF_1_5_DAYS", api_kwargs={"style": "primary"})],
+        [InlineKeyboardButton("7 Days", callback_data="store_timeframe_TF_7_DAYS", api_kwargs={"style": "primary"})],
+        [InlineKeyboardButton("1-2 Weeks", callback_data="store_timeframe_TF_1_2_WEEKS", api_kwargs={"style": "primary"})],
+        [InlineKeyboardButton("2-3 Weeks", callback_data="store_timeframe_TF_2_3_WEEKS", api_kwargs={"style": "danger"})],
+        [InlineKeyboardButton("3-4 Weeks", callback_data="store_timeframe_TF_3_4_WEEKS", api_kwargs={"style": "danger"})],
+        [InlineKeyboardButton("4 Weeks", callback_data="store_timeframe_TF_4_WEEKS", api_kwargs={"style": "danger"})],
     ])
 
 
 def _store_method_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("FTIDv3", callback_data="store_method_M_FTID_V3")],
-        [InlineKeyboardButton("Weighted FTID", callback_data="store_method_M_WEIGHTED_FTID")],
-        [InlineKeyboardButton("LIT", callback_data="store_method_M_LIT")],
-        [InlineKeyboardButton("DNA", callback_data="store_method_M_DNA")],
-        [InlineKeyboardButton("EB", callback_data="store_method_M_EB")],
-        [InlineKeyboardButton("FTID ROS", callback_data="store_method_M_FTID_ROS")],
-        [InlineKeyboardButton("FTID ROD", callback_data="store_method_M_FTID_ROD")],
-        [InlineKeyboardButton("FTIDNA", callback_data="store_method_M_FTIDNA")],
-        [InlineKeyboardButton("DMG RTS", callback_data="store_method_M_DMG_RTS")],
-        [InlineKeyboardButton("RTS", callback_data="store_method_M_RTS")],
-        [InlineKeyboardButton("UTD", callback_data="store_method_M_UTD")],
-        [InlineKeyboardButton("PTDNA", callback_data="store_method_M_PTDNA")],
-        [InlineKeyboardButton("PEB", callback_data="store_method_M_PEB")],
+        [InlineKeyboardButton("FTIDv3", callback_data="store_method_M_FTID_V3", api_kwargs={"style": "primary"})],
+        [InlineKeyboardButton("Weighted FTID", callback_data="store_method_M_WEIGHTED_FTID", api_kwargs={"style": "primary"})],
+        [InlineKeyboardButton("LIT", callback_data="store_method_M_LIT", api_kwargs={"style": "success"})],
+        [InlineKeyboardButton("DNA", callback_data="store_method_M_DNA", api_kwargs={"style": "success"})],
+        [InlineKeyboardButton("EB", callback_data="store_method_M_EB", api_kwargs={"style": "primary"})],
+        [InlineKeyboardButton("FTID ROS", callback_data="store_method_M_FTID_ROS", api_kwargs={"style": "primary"})],
+        [InlineKeyboardButton("FTID ROD", callback_data="store_method_M_FTID_ROD", api_kwargs={"style": "danger"})],
+        [InlineKeyboardButton("FTIDNA", callback_data="store_method_M_FTIDNA", api_kwargs={"style": "danger"})],
+        [InlineKeyboardButton("DMG RTS", callback_data="store_method_M_DMG_RTS", api_kwargs={"style": "danger"})],
+        [InlineKeyboardButton("RTS", callback_data="store_method_M_RTS", api_kwargs={"style": "danger"})],
+        [InlineKeyboardButton("UTD", callback_data="store_method_M_UTD", api_kwargs={"style": "primary"})],
+        [InlineKeyboardButton("PTDNA", callback_data="store_method_M_PTDNA", api_kwargs={"style": "primary"})],
+        [InlineKeyboardButton("PEB", callback_data="store_method_M_PEB", api_kwargs={"style": "primary"})],
     ])
 
 
 def _store_notes_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("N/A", callback_data="store_notes_na")],
+        [InlineKeyboardButton("N/A", callback_data="store_notes_na", api_kwargs={"style": "primary"})],
     ])
+
+
+def _store_destination_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🇺🇸 USA", callback_data="store_destination_USA", api_kwargs={"style": "primary"}),
+            InlineKeyboardButton("🇨🇦 CA",  callback_data="store_destination_CA", api_kwargs={"style": "danger"}),
+        ],
+        [
+            InlineKeyboardButton("🇬🇧 UK",  callback_data="store_destination_UK", api_kwargs={"style": "danger"}),
+            InlineKeyboardButton("🇪🇺 EU",  callback_data="store_destination_EU", api_kwargs={"style": "primary"}),
+        ],
+        [
+            InlineKeyboardButton("ROS/ROD", callback_data="store_destination_ROSROD", api_kwargs={"style": "danger"}),
+        ],
+    ])
+
+
+# Maps each destination shortcode to a t.me section link.
+_STORE_DESTINATION_URLS: dict[str, str] = {
+    "USA":    "https://t.me/c/3857658928/148",
+    "CA":     "https://t.me/c/3857658928/147",
+    "UK":     "https://t.me/c/3857658928/146",
+    "EU":     "https://t.me/c/3857658928/145",
+    "ROSROD": "https://t.me/c/3857658928/144",
+}
 
 
 def _store_preview_keyboard(store_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Visit Store", url=store_url)],
+        [InlineKeyboardButton("Visit Store", url=store_url, api_kwargs={"style": "primary"})],
         [
-            InlineKeyboardButton("✅ Confirm", callback_data="store_preview_confirm"),
-            InlineKeyboardButton("❌ Cancel", callback_data="store_preview_cancel"),
+            InlineKeyboardButton("✅ Confirm", callback_data="store_preview_confirm", api_kwargs={"style": "success"}),
+            InlineKeyboardButton("❌ Cancel", callback_data="store_preview_cancel", api_kwargs={"style": "danger"}),
         ],
     ])
 
@@ -397,8 +423,8 @@ def _custom_preview_keyboard(button_specs: list[list[dict[str, str]]]) -> Inline
             for row in button_specs
         ])
     rows.append([
-        InlineKeyboardButton("✅ Confirm", callback_data="custom_preview_confirm"),
-        InlineKeyboardButton("❌ Cancel", callback_data="custom_preview_cancel"),
+        InlineKeyboardButton("✅ Confirm", callback_data="custom_preview_confirm", api_kwargs={"style": "success"}),
+        InlineKeyboardButton("❌ Cancel", callback_data="custom_preview_cancel", api_kwargs={"style": "danger"}),
     ])
     return InlineKeyboardMarkup(rows)
 
@@ -766,6 +792,15 @@ def _countdown_bar(seconds_left: int, total_seconds: int = 60, width: int = 12) 
     return f"[{bar}] {percent}%"
 
 
+# Cycle of Bot API 9.4 button styles for gateway link buttons
+_START_BUTTON_STYLES = ("success", "primary", "danger")
+
+
+def _start_button_style(index: int) -> dict:
+    """Return api_kwargs dict with the appropriate style for this index."""
+    return {"style": _START_BUTTON_STYLES[index % len(_START_BUTTON_STYLES)]}
+
+
 def _gateway_links_text(seconds_left: int) -> str:
     return (
         f"🔗 Here are your invite links (valid for the next {seconds_left} seconds):\n"
@@ -789,14 +824,21 @@ def _math_answer_options(answer: int) -> list[int]:
     return values
 
 
-def _math_answer_keyboard(options: list[int]) -> InlineKeyboardMarkup:
+def _math_answer_keyboard(options: list[int], answer: int) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for idx in range(0, len(options), 2):
         row_values = options[idx: idx + 2]
-        rows.append([
-            InlineKeyboardButton(str(value), callback_data=f"math_answer_{value}")
-            for value in row_values
-        ])
+        row: list[InlineKeyboardButton] = []
+        for value in row_values:
+            style = "success" if value == answer else "danger"
+            row.append(
+                InlineKeyboardButton(
+                    str(value),
+                    callback_data=f"math_answer_{value}",
+                    api_kwargs={"style": style},
+                )
+            )
+        rows.append(row)
     return InlineKeyboardMarkup(rows)
 
 
@@ -818,7 +860,7 @@ async def _start_math_challenge(message, user_id: int, lang: str, edit: bool = F
     }
 
     text = t(lang, "math_prompt", q=question)
-    keyboard = _math_answer_keyboard(options)
+    keyboard = _math_answer_keyboard(options, answer)
 
     if edit:
         sent = await message.edit_text(text, parse_mode="Markdown", reply_markup=keyboard)
@@ -869,7 +911,7 @@ async def _complete_gateway_success(update: Update, context: ContextTypes.DEFAUL
     buttons: list[list[InlineKeyboardButton]] = []
     button_specs: list[list[dict[str, str]]] = []
 
-    for gid, gname in zip(GROUP_IDS, GROUP_NAMES):
+    for idx, (gid, gname) in enumerate(zip(GROUP_IDS, GROUP_NAMES)):
         try:
             invite = await context.bot.create_chat_invite_link(
                 chat_id=gid,
@@ -878,8 +920,17 @@ async def _complete_gateway_success(update: Update, context: ContextTypes.DEFAUL
                 name=f"Gateway – {user_id}",
             )
             invite_entries.append({"chat_id": gid, "invite_link": invite})
-            label = f"🔗 {gname}"
-            buttons.append([InlineKeyboardButton(label, url=invite.invite_link)])
+            _name_lower = gname.strip().lower()
+            if _name_lower == "chat":
+                label = "🔗 Chat"
+                btn_style = {"style": "primary"}
+            elif _name_lower == "main":
+                label = "🔗 VIP Group"
+                btn_style = {"style": "success"}
+            else:
+                label = f"🔗 {gname}"
+                btn_style = _start_button_style(idx)
+            buttons.append([InlineKeyboardButton(label, url=invite.invite_link, api_kwargs=btn_style)])
             button_specs.append([{"text": label, "url": invite.invite_link}])
             logger.info("Link created → %s (%s) | %s", gid, gname, invite.invite_link)
         except (Forbidden, BadRequest) as exc:
@@ -1241,7 +1292,7 @@ async def _finalize_add_store(update: Update, context: ContextTypes.DEFAULT_TYPE
     data = flow.get("data", {})
     store_url = data.get("store_url", "")
     caption = _build_store_caption(data)
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Visit Store", url=store_url)]])
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Visit Store", url=store_url, api_kwargs={"style": "primary"})]])
 
     image_type = data.get("image_type")
     image_value = data.get("image")
@@ -1530,8 +1581,8 @@ async def _handle_add_store_text(update: Update, context: ContextTypes.DEFAULT_T
         await _reply_text_tracked(
             update.message,
             user_id,
-            "🚀 Ready to Post? Please provide me the URL of the group/section. | Example: <code>https://t.me/c/3857658928/148</code>",
-            parse_mode="HTML",
+            "🚀 Ready to Post? Choose the section to post to:",
+            reply_markup=_store_destination_keyboard(),
         )
         return True
 
@@ -1681,8 +1732,17 @@ async def _handle_add_store_media(update: Update) -> bool:
     elif message.document and (message.document.mime_type or "").startswith("image/"):
         data["image_type"] = "document"
         data["image"] = message.document.file_id
+    elif message.text and message.text.strip().startswith(("http://", "https://")):
+        # Accept a direct image URL instead of a file upload
+        data["image_type"] = "url"
+        data["image"] = message.text.strip()
     else:
-        await _reply_text_tracked(update.message, user_id, "📸 Please upload the <b>store logo.</b>", parse_mode="HTML")
+        await _reply_text_tracked(
+            update.message,
+            user_id,
+            "📸 Please upload the <b>store logo</b> or send a direct image URL (https://...).",
+            parse_mode="HTML",
+        )
         return True
 
     flow["step"] = "store_url"
@@ -1796,9 +1856,39 @@ async def store_notes_na_callback(update: Update, context: ContextTypes.DEFAULT_
     await _reply_text_tracked(
         query.message,
         user_id,
-        "🚀 Ready to Post? Please provide me the URL of the group/section. | Example: <code>https://t.me/c/3857658928/148</code>",
-        parse_mode="HTML",
+        "🚀 Ready to Post? Choose the section to post to:",
+        reply_markup=_store_destination_keyboard(),
     )
+
+
+async def store_destination_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if query.message.chat.type != "private":
+        return
+
+    user_id = query.from_user.id
+    flow = pending.get(user_id)
+    if not flow or flow.get("mode") != "add_store" or flow.get("step") != "destination":
+        return
+
+    shortcode = query.data.replace("store_destination_", "", 1)
+    section_url = _STORE_DESTINATION_URLS.get(shortcode)
+    if not section_url:
+        return
+
+    parsed = _parse_target_link(section_url)
+    if not parsed:
+        return
+
+    target_chat_id, reply_to_message_id, message_thread_id = parsed
+    data = flow.setdefault("data", {})
+    data["target_chat_id"] = target_chat_id
+    data["target_reply_to"] = reply_to_message_id
+    data["target_thread_id"] = message_thread_id
+
+    await _send_add_store_preview(update, context)
 
 
 async def store_preview_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1904,6 +1994,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     # Block users banned from any configured group
+    from telegram.error import TelegramError as _TGE
     for gid in GROUP_IDS:
         try:
             member = await context.bot.get_chat_member(gid, user_id)
@@ -1912,13 +2003,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                     "I'm sorry, you are not allowed to use this bot at this moment."
                 )
                 return
-        except (BadRequest, Forbidden):
+        except _TGE:
             continue
 
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🇺🇸 English", callback_data="lang_en"),
-            InlineKeyboardButton("🇲🇽 Español", callback_data="lang_es"),
+            InlineKeyboardButton("🇺🇸 English", callback_data="lang_en", api_kwargs={"style": "primary"}),
+            InlineKeyboardButton("🇲🇽 Español", callback_data="lang_es", api_kwargs={"style": "success"}),
         ]
     ])
     msg = await update.message.reply_text(
@@ -2026,7 +2117,7 @@ async def math_answer_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if selected_answer != flow.get("answer"):
         pending[user_id] = {"lang": lang}
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 Try Again", callback_data="retry_captcha")]
+            [InlineKeyboardButton("🔄 Try Again", callback_data="retry_captcha", api_kwargs={"style": "primary"})]
         ])
         await query.edit_message_text(
             "❌ Incorrect answer.\nUse /start to try again with a new problem.",
@@ -2229,8 +2320,8 @@ async def mute_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     buttons = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🔑 Permissions", callback_data=f"info_perms_{target.id}"),
-            InlineKeyboardButton("✅ Unmute", callback_data=f"unmute_{target.id}"),
+            InlineKeyboardButton("🔑 Permissions", callback_data=f"info_perms_{target.id}", api_kwargs={"style": "primary"}),
+            InlineKeyboardButton("✅ Unmute", callback_data=f"unmute_{target.id}", api_kwargs={"style": "success"}),
         ]
     ])
 
@@ -2459,6 +2550,110 @@ async def chatid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
 
+# ─── Ping command (diagnostic) ──────────────────────────────────────────────
+
+async def ping_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/ping — simple liveness check."""
+    await update.message.reply_text("🏓 pong")
+
+
+# ─── Help command (owner only) ───────────────────────────────────────────────
+
+HELP_OWNER_USERNAME = "gordo"
+
+HELP_TEXT = """
+🤖 <b>Gateway TG — Admin Commands</b>
+
+<b>👑 Admin Management</b>
+/promote — Promote a user to admin
+/demote — Demote an admin to member
+/adminlist — List all admins in the chat
+/admincache — Force-refresh the admin cache
+/anonadmin &lt;on|off&gt; — Toggle anonymous admin mode
+/adminerror &lt;on|off&gt; — Toggle "not admin" error messages
+
+<b>🌊 Antiflood</b>
+/flood — Show current flood settings
+/setflood &lt;N&gt; — Set max messages before action
+/setfloodtimer &lt;seconds&gt; — Set the flood time window
+/floodmode &lt;ban|kick|mute|tban|tmute&gt; — Set flood action
+/clearflood — Reset flood counters
+
+<b>🛡 Antiraid</b>
+/antiraid &lt;on|off&gt; — Toggle raid mode
+/raidtime &lt;seconds&gt; — How long a raid is considered active
+/raidactiontime &lt;seconds&gt; — Time window to detect a raid
+/autoantiraid &lt;on|off&gt; — Toggle automatic raid detection
+
+<b>✅ Approvals</b>
+/approval — Show join-approval settings
+/approve &lt;user&gt; — Pre-approve a user
+/unapprove &lt;user&gt; — Remove pre-approval
+/approved — List approved users
+/unapproveall — Remove all pre-approvals
+
+<b>🔨 Bans &amp; Mutes</b>
+/ban &lt;user&gt; — Ban a user
+/dban &lt;user&gt; — Delete message + ban
+/sban &lt;user&gt; — Silent ban
+/tban &lt;user&gt; &lt;time&gt; — Temp-ban (e.g. 1h, 1d)
+/unban &lt;user&gt; — Unban a user
+/mute &lt;user&gt; or .mute &lt;time&gt; — Mute a user
+/dmute — Delete message + mute
+/smute — Silent mute
+/tmute &lt;user&gt; &lt;time&gt; — Temp-mute
+/unmute &lt;user&gt; or .unmute — Unmute a user
+/kick &lt;user&gt; — Kick a user
+/dkick — Delete message + kick
+/skick — Silent kick
+/kickme — Kick yourself (test)
+.warning — Reply to warn a user (3 warns = ban)
+
+<b>🚫 Blocklists</b>
+/addblocklist &lt;word&gt; — Add a blocked word/phrase
+/rmblocklist &lt;word&gt; — Remove a blocked word
+/blocklist — Show current blocklist
+/blocklistmode &lt;action&gt; — Set blocklist action
+/blocklistdelete &lt;on|off&gt; — Delete blocked messages
+/setblocklistreason — Set blocklist ban reason
+/resetblocklistreason — Reset blocklist ban reason
+/unblocklistall — Clear all blocked words
+
+<b>🌐 Federations</b>
+/newfed &lt;name&gt; — Create a federation
+/joinfed &lt;fed_id&gt; — Join a federation
+/leavefed — Leave the current federation
+/fedban &lt;user&gt; — Fed-ban a user
+/unfedban &lt;user&gt; — Remove a fed-ban
+/fedadmins — List federation admins
+/fedpromote &lt;user&gt; — Promote to federation admin
+/feddemote &lt;user&gt; — Demote a federation admin
+/fedinfo — Show federation info
+/fedchats — List chats in the federation
+
+<b>👥 Welcome &amp; Info</b>
+/staff — Show the staff list
+/info &lt;user&gt; or .info — Show user info &amp; warns
+
+<b>🔧 Diagnostics</b>
+/chatid — Show current chat ID and type
+
+<b>🛍 Store Tools (DM only)</b>
+Type <code>admin addstore</code> — Add a store listing
+Type <code>admin copymessages</code> — Copy messages between sections
+Type <code>admin custommessage</code> — Send a custom formatted message
+""".strip()
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/help — show all admin commands. Restricted to @gordo only."""
+    user = update.effective_user
+    if not user or (user.username or "").lower() != HELP_OWNER_USERNAME.lower():
+        return  # silently ignore everyone else
+
+    await update.message.reply_text(HELP_TEXT, parse_mode="HTML")
+
+
 # ─── Main ────────────────────────────────────────────────────────────────────
 
 GROUP_FILTER = filters.ChatType.GROUP | filters.ChatType.SUPERGROUP
@@ -2604,7 +2799,9 @@ def main() -> None:
     application.add_handler(CommandHandler("staff", staff_command))
 
     # ── Diagnostic ───────────────────────────────────────────────────────
+    application.add_handler(CommandHandler("ping", ping_command))
     application.add_handler(CommandHandler("chatid", chatid_command))
+    application.add_handler(CommandHandler("help", help_command))
 
     # ── Callback query handlers for captcha + info + retry ─────────────
     application.add_handler(
@@ -2636,6 +2833,12 @@ def main() -> None:
     )
     application.add_handler(
         CallbackQueryHandler(store_notes_na_callback, pattern=r"^store_notes_na$")
+    )
+    application.add_handler(
+        CallbackQueryHandler(
+            store_destination_callback,
+            pattern=r"^store_destination_(USA|CA|UK|EU|ROSROD)$",
+        )
     )
     application.add_handler(
         CallbackQueryHandler(store_preview_callback, pattern=r"^store_preview_(confirm|cancel)$")
