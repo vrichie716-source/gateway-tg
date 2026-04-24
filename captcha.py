@@ -5,7 +5,7 @@ Also sends the combined welcome + verify message.
 
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from telegram import (
     ChatPermissions,
@@ -21,6 +21,8 @@ from strings import t
 from welcome import _record_user
 
 logger = logging.getLogger(__name__)
+
+EST = timezone(timedelta(hours=-5), name="EST")
 
 # Track pending verifications: {(chat_id, user_id): message_id}
 _pending_verify: dict[tuple[int, int], int] = {}
@@ -47,8 +49,8 @@ _UNRESTRICTED = ChatPermissions(
 
 def _build_welcome_text(chat, user, count, lang):
     """Build the combined welcome + captcha prompt text."""
-    now = datetime.now(timezone.utc)
-    date_str = now.strftime("%d/%m/%Y %H:%M:%S")
+    now = datetime.now(EST)
+    date_str = now.strftime("%d/%m/%Y %I:%M:%S %p EST")
     full_name = user.first_name or ""
     if user.last_name:
         full_name += f" {user.last_name}"
@@ -106,6 +108,7 @@ async def restrict_and_welcome(chat, user, context, lang):
         [InlineKeyboardButton(
             t(lang, "captcha_button"),
             callback_data=f"captcha_{user.id}",
+            api_kwargs={"style": "success"},
         )]
     ])
 
